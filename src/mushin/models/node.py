@@ -4,7 +4,7 @@ from builtins import type as PythonType
 from collections.abc import Mapping
 from logging import Logger
 from typing import Literal, Protocol, Self
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, JsonValue, model_validator
 
@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, JsonValue, model_validator
 class Node(BaseModel):
     """A configured instance of a registered node type."""
 
-    id: UUID
+    id: UUID = Field(default_factory=uuid4)
     type: str = Field(min_length=1)
     version: int = Field(default=1, ge=1)
     config: dict[str, JsonValue] = Field(default_factory=dict)
@@ -68,7 +68,7 @@ class WorkflowOutput(BaseModel):
 class Workflow(BaseModel):
     """A serializable graph; graph-level validation is a separate step."""
 
-    id: UUID
+    id: UUID = Field(default_factory=uuid4)
     name: str = Field(min_length=1)
     schema_version: int = Field(default=1, ge=1)
     nodes: list[Node] = Field(default_factory=list)

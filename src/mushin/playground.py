@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from uuid import uuid4
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
+from mushin.artifacts import LocalArtifactStore
+from mushin.models.file_metadata import FileMetadata
 from mushin.models.events import ExecutionEvent, NodeStateEvent
-from mushin.models.node import Node, PortDefault, Workflow, WorkflowInput, WorkflowOutput
+from mushin.models.node import Edge, Node, Workflow, WorkflowInput, WorkflowOutput
 from mushin.models.registry import NodeRegistry
 from mushin.models.run import WorkflowRunner, WorkflowRunStatus
-from mushin.nodes import Add
+from mushin.nodes import ImportFile, InspectFile, RenameFile, SaveFile, TemplatedString, to_variables_registration
 
 
 def print_event(event: ExecutionEvent) -> None:
@@ -23,37 +26,77 @@ def print_event(event: ExecutionEvent) -> None:
         print(f"  {event.error.code}: {event.error.message}", flush=True)
 
 
-async def main() -> None:
-    registry = NodeRegistry()
-    # Customize this playground's registration without changing the built-in spec.
-    add_spec = Add.spec.model_copy(deep=True)
-    for port in add_spec.inputs:
-        if port.name == "b":
-            port.default = PortDefault(value=3)
-    registry.register(add_spec, Add())
-
-    add = Node(id=uuid4(), type=Add.spec.type)
-    workflow = Workflow(
-        id=uuid4(),
-        name="Add two workflow inputs",
-        nodes=[add],
-        inputs=[
-            WorkflowInput(name="left", target_node=add.id, target_port="a"),
-            WorkflowInput(name="right", target_node=add.id, target_port="b"),
+def build_workflow(variables_type: str) -> Workflow:
+    """Compose the graph separately from workspace setup and execution."""
+    source = Node(type=ImportFile.spec.type)
+    inspect = Node(type=InspectFile.spec.type)
+    variables = Node(type=variables_type)
+    template = Node(
+        type=TemplatedString.spec.type,
+        config={"template": "{stem}_{size_bytes}{extension}"},
+    )
+    rename = Node(type=RenameFile.spec.type)
+    save = Node(type=SaveFile.spec.type)
+    return Workflow(
+        name="Name and save an artifact",
+        nodes=[source, inspect, variables, template, rename, save],
+        edges=[
+            Edge(source_node=upstream.id, source_port=output, target_node=downstream.id, target_port=input_port)
+            for upstream, output, downstream, input_port in (
+                (source, "file", inspect, "file"),
+                (inspect, "metadata", variables, "value"),
+                (variables, "variables", template, "variables"),
+                (template, "text", rename, "filename"),
+                (source, "file", rename, "file"),
+                (rename, "file", save, "file"),
+            )
         ],
-        outputs=[WorkflowOutput(name="sum", source_node=add.id, source_port="sum")],
+        inputs=[
+            WorkflowInput(name="source", target_node=source.id, target_port="source"),
+            WorkflowInput(name="destination", target_node=save.id, target_port="directory"),
+        ],
+        outputs=[
+            WorkflowOutput(name="filename", source_node=template.id, source_port="text"),
+            WorkflowOutput(name="saved_path", source_node=save.id, source_port="path"),
+        ],
     )
 
-    # Bindings survive saving and loading the workflow document.
-    workflow = Workflow.model_validate_json(workflow.model_dump_json())
-    runner = WorkflowRunner(registry)
-    for inputs in ({"left": 2}, {"left": 2, "right": 8}):
-        run = await runner.run(workflow, inputs=inputs, on_event=print_event)
+
+async def main() -> None:
+    # The sample, managed artifacts, and saved output share a disposable workspace.
+    with TemporaryDirectory(prefix="mushin-playground-") as workspace:
+        root = Path(workspace)
+        source = root / "example.txt"
+        source.write_bytes(b"Hello from Mushin!\n")
+        destination = root / "output"
+        destination.mkdir()
+        store = LocalArtifactStore(root / "artifacts")
+        registry = NodeRegistry()
+        for node_class in (ImportFile, InspectFile, SaveFile):
+            registry.register(node_class.spec, node_class(store))
+        for node_class in (TemplatedString, RenameFile):
+            registry.register(node_class.spec, node_class())
+        adapter = to_variables_registration(FileMetadata, input_type="file_metadata")
+        registry.register(adapter.spec, adapter.executor)
+
+        workflow = build_workflow(adapter.spec.type)
+        # Bindings and the configured template survive saving and loading.
+        workflow = Workflow.model_validate_json(workflow.model_dump_json())
+        print("Import -> inspect -> variables -> template -> rename -> save", flush=True)
+        run = await WorkflowRunner(registry).run(
+            workflow, inputs={"source": str(source), "destination": str(destination)}, on_event=print_event,
+        )
         if run.status != WorkflowRunStatus.SUCCEEDED:
             print(run.model_dump_json(indent=2))
             raise SystemExit(1)
-        right = inputs.get("right", "default (3)")
-        print(f"left={inputs['left']}, right={right} -> sum={run.outputs['sum']}")
+
+        saved = Path(str(run.outputs["saved_path"]))
+        if saved.read_bytes() != source.read_bytes():
+            raise RuntimeError("Saved content differs from the source")
+        print(f"Generated filename: {run.outputs['filename']}")
+        print(f"Saved to: {saved}")
+        print("Verified saved content matches the source.")
+        print("The temporary sample workspace is removed when the playground exits.")
 
 
 if __name__ == "__main__":

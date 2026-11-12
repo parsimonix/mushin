@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
+from mushin.models.artifact import ArtifactRef
+from mushin.models.file_metadata import FileMetadata
 from mushin.models.node import NodeExecutor, NodeSpec
 
 
@@ -76,7 +78,7 @@ class TypeRegistry:
 
 
 def create_default_type_registry() -> TypeRegistry:
-    """Return a fresh registry of strict primitive types.
+    """Return a fresh registry of primitives, artifact references, and file metadata.
 
     ``number`` accepts integers and floats, excluding booleans. Primitive types
     do not accept null; register an explicit nullable type when needed.
@@ -86,4 +88,7 @@ def create_default_type_registry() -> TypeRegistry:
     registry.register("integer", TypeAdapter(int))
     registry.register("number", TypeAdapter(int | float))
     registry.register("boolean", TypeAdapter(bool))
+    registry.register("artifact", TypeAdapter(ArtifactRef))
+    registry.register("file_metadata", TypeAdapter(FileMetadata))
+    registry.register("template_variables", TypeAdapter(dict[str, str | int | float | bool]))
     return registry
