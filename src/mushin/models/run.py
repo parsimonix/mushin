@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from asyncio import CancelledError, Event, current_task
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -74,6 +75,8 @@ class WorkflowRun(BaseModel):
 
     id: UUID = Field(default_factory=uuid4)
     workflow: Workflow
+    inputs: dict[str, object] = Field(default_factory=dict)
+    outputs: dict[str, object] = Field(default_factory=dict)
     status: WorkflowRunStatus = WorkflowRunStatus.PENDING
     nodes: dict[UUID, NodeRun] = Field(default_factory=dict)
     validation_issues: list[ValidationIssue] = Field(default_factory=list)
@@ -105,11 +108,14 @@ class WorkflowRunner:
         self._type_registry = type_registry if type_registry is not None else create_default_type_registry()
         self._validator = WorkflowValidator(registry, self._type_registry)
 
-    async def run(self, workflow: Workflow, *, cancellation: Event | None = None) -> WorkflowRun:
+    async def run(
+        self, workflow: Workflow, *, inputs: Mapping[str, object] | None = None, cancellation: Event | None = None
+    ) -> WorkflowRun:
         """Snapshot and validate the graph, then execute its nodes.
 
         Invalid graphs return a failed run with validation issues and execute
-        no nodes. Gather inputs from upstream outputs and validate port names,
+        no nodes. Snapshot and validate named inputs before executing any node.
+        Gather inputs from workflow bindings and upstream outputs and validate port names,
         required values, and runtime types before and after execution.
 
         On node failure, block its dependents and cancel other unstarted nodes.
@@ -137,6 +143,14 @@ class WorkflowRunner:
         logger.info("Run %s: workflow validation passed", run.id)
         # Freeze specifications before the first await; executor instances remain shared.
         registrations = self._resolve_nodes(snapshot)
+        run.inputs = deepcopy(dict(inputs)) if inputs is not None else {}
+        run.error = self._validate_workflow_inputs(run, registrations)
+        if run.error is not None:
+            run.status = WorkflowRunStatus.FAILED
+            self._finish_pending(run)
+            run.finished_at = self._now()
+            self._log_completion(run)
+            return run
         logger.debug("Run %s: resolved and snapshotted %d node specifications", run.id, len(registrations))
         cancellation = cancellation if cancellation is not None else Event()
         run.status = WorkflowRunStatus.RUNNING
@@ -155,6 +169,12 @@ class WorkflowRunner:
                     self._finish_pending(run, failed_node=node.id)
                     return run
             run.status = WorkflowRunStatus.CANCELLED if cancellation.is_set() else WorkflowRunStatus.SUCCEEDED
+            if run.status == WorkflowRunStatus.SUCCEEDED:
+                run.outputs = {
+                    binding.name: run.nodes[binding.source_node].outputs[binding.source_port]
+                    for binding in snapshot.outputs
+                    if binding.source_port in run.nodes[binding.source_node].outputs
+                }
         except CancelledError:
             logger.info("Run %s: cancelling workflow", run.id)
             run.status = WorkflowRunStatus.CANCELLED
@@ -168,6 +188,33 @@ class WorkflowRunner:
             run.finished_at = self._now()
             self._log_completion(run)
         return run
+
+    def _validate_workflow_inputs(self, run: WorkflowRun, registrations: dict[UUID, NodeRegistration]) -> RunError | None:
+        """Reject unknown, missing, or mistyped inputs before side effects occur."""
+        declared = {binding.name for binding in run.workflow.inputs}
+        unexpected = [name for name in run.inputs if name not in declared]
+        if unexpected:
+            return RunError(code="unexpected_workflow_input", message=f"Unknown workflow inputs: {unexpected}")
+        validated: dict[str, object] = {}
+        for binding in run.workflow.inputs:
+            port = next(port for port in registrations[binding.target_node].spec.inputs if port.name == binding.target_port)
+            if binding.name not in run.inputs:
+                if port.required and port.default is None:
+                    return RunError(
+                        code="missing_workflow_input", message=f"Missing required workflow input {binding.name!r}",
+                        node_id=binding.target_node, port_name=port.name,
+                    )
+                continue
+            try:
+                values = self._validate_values(binding.target_node, [port], {port.name: run.inputs[binding.name]})
+            except PortValueError as exc:
+                return RunError(
+                    code="invalid_workflow_input", message=f"Workflow input {binding.name!r}: {exc}",
+                    node_id=exc.node_id, port_name=exc.port_name,
+                )
+            validated[binding.name] = values[port.name]
+        run.inputs = validated
+        return None
 
     def _log_completion(self, run: WorkflowRun) -> None:
         elapsed = (run.finished_at - run.started_at).total_seconds() if run.finished_at and run.started_at else 0.0
@@ -236,12 +283,19 @@ class WorkflowRunner:
             logger.info("Run %s: node %s finished with status %s", run.id, node.id, record.status)
 
     def _collect_inputs(self, run: WorkflowRun, node: Node, spec: NodeSpec) -> dict[str, object]:
-        inputs: dict[str, object] = {}
+        inputs = {
+            binding.target_port: run.inputs[binding.name]
+            for binding in run.workflow.inputs
+            if binding.target_node == node.id and binding.name in run.inputs
+        }
         for edge in run.workflow.edges:
             if edge.target_node == node.id:
                 outputs = run.nodes[edge.source_node].outputs
                 if edge.source_port in outputs:
                     inputs[edge.target_port] = outputs[edge.source_port]
+        for port in spec.inputs:
+            if port.name not in inputs and port.default is not None:
+                inputs[port.name] = deepcopy(port.default.value)
         missing = [port.name for port in spec.inputs if port.required and port.name not in inputs]
         if missing:
             raise ValueError(f"Missing required inputs: {missing}")

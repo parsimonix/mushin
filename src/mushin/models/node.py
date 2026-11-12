@@ -18,6 +18,12 @@ class Node(BaseModel):
     config: dict[str, JsonValue] = Field(default_factory=dict)
 
 
+class PortDefault(BaseModel):
+    """An explicit default, including null; absence of this wrapper means no default."""
+
+    value: JsonValue
+
+
 class Port(BaseModel):
     """A port declaration belonging to a node definition."""
 
@@ -25,6 +31,13 @@ class Port(BaseModel):
     direction: Literal["input", "output"]
     type: str = Field(min_length=1, description="Stable value type identifier.")
     required: bool = True
+    default: PortDefault | None = None
+
+    @model_validator(mode="after")
+    def validate_default(self) -> Self:
+        if self.direction == "output" and self.default is not None:
+            raise ValueError("Only input ports may declare defaults")
+        return self
 
 
 class Edge(BaseModel):
@@ -36,6 +49,22 @@ class Edge(BaseModel):
     target_port: str = Field(min_length=1)
 
 
+class WorkflowInput(BaseModel):
+    """Expose a node input port under a workflow-level name."""
+
+    name: str = Field(min_length=1)
+    target_node: UUID
+    target_port: str = Field(min_length=1)
+
+
+class WorkflowOutput(BaseModel):
+    """Expose a node output port under a workflow-level name."""
+
+    name: str = Field(min_length=1)
+    source_node: UUID
+    source_port: str = Field(min_length=1)
+
+
 class Workflow(BaseModel):
     """A serializable graph; graph-level validation is a separate step."""
 
@@ -44,6 +73,8 @@ class Workflow(BaseModel):
     schema_version: int = Field(default=1, ge=1)
     nodes: list[Node] = Field(default_factory=list)
     edges: list[Edge] = Field(default_factory=list)
+    inputs: list[WorkflowInput] = Field(default_factory=list)
+    outputs: list[WorkflowOutput] = Field(default_factory=list)
 
 
 class NodeExecutor(Protocol):

@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
-from mushin.models.node import Edge, Node, NodeSpec, Port, Workflow
+from mushin.models.node import Edge, Node, NodeSpec, Port, Workflow, WorkflowInput, WorkflowOutput
 from mushin.models.registry import NodeRegistry, TypeRegistry
 from mushin.models.validation import WorkflowValidator
 
@@ -108,6 +108,71 @@ class WorkflowValidatorTests(unittest.TestCase):
         issues = self.validate([self.target])
         self.assertEqual([issue.code for issue in issues], ["missing_required_input"])
         self.assertEqual(issues[0].node_id, self.target.id)
+
+    def binding_workflow(self):
+        return Workflow(
+            id=uuid4(), name="Exposed step", nodes=[self.target],
+            inputs=[WorkflowInput(name="value", target_node=self.target.id, target_port="in")],
+            outputs=[WorkflowOutput(name="value", source_node=self.target.id, source_port="out")],
+        )
+
+    def test_bindings_satisfy_inputs_and_round_trip(self):
+        workflow = self.binding_workflow()
+        serialized = workflow.model_dump_json()
+        restored = Workflow.model_validate_json(serialized)
+        self.assertEqual(restored, workflow)
+        self.assertEqual(self.validator.validate(restored), [])
+        self.assertEqual(workflow.model_dump_json(), serialized)
+
+    def test_binding_endpoints_and_diagnostic_locations(self):
+        for direction in ("input", "output"):
+            for missing_node in (False, True):
+                with self.subTest(direction=direction, missing_node=missing_node):
+                    workflow = self.binding_workflow()
+                    binding = workflow.inputs[0] if direction == "input" else workflow.outputs[0]
+                    if direction == "input":
+                        binding.target_node = uuid4() if missing_node else self.target.id
+                        binding.target_port = "in" if missing_node else "out"
+                    else:
+                        binding.source_node = uuid4() if missing_node else self.target.id
+                        binding.source_port = "out" if missing_node else "in"
+                    issue = self.validator.validate(workflow)[0]
+                    self.assertEqual(issue.code, "missing_node" if missing_node else "missing_port")
+                    self.assertEqual(issue.binding_name, "value")
+                    self.assertEqual(issue.binding_direction, direction)
+                    self.assertEqual(issue.binding_index, 0)
+                    self.assertIsNone(issue.edge_index)
+
+    def test_duplicate_binding_names_in_each_direction(self):
+        workflow = self.binding_workflow()
+        workflow.inputs.append(workflow.inputs[0].model_copy())
+        workflow.outputs.append(workflow.outputs[0].model_copy())
+        self.assertEqual(
+            [issue.code for issue in self.validator.validate(workflow)],
+            ["duplicate_binding_name", "conflicting_input_binding", "duplicate_binding_name"],
+        )
+
+    def test_binding_conflicts_with_edge_or_other_binding(self):
+        workflow = self.binding_workflow()
+        workflow.nodes.append(self.source)
+        workflow.edges.append(self.edge())
+        self.assertEqual([issue.code for issue in self.validator.validate(workflow)], ["conflicting_input_binding"])
+        workflow.edges.clear()
+        workflow.inputs.append(WorkflowInput(name="other", target_node=self.target.id, target_port="in"))
+        self.assertEqual([issue.code for issue in self.validator.validate(workflow)], ["conflicting_input_binding"])
+
+    def test_output_can_be_exposed_multiple_times_and_feed_edge(self):
+        workflow = self.binding_workflow()
+        other = Node(id=uuid4(), type="step")
+        workflow.nodes.append(other)
+        workflow.edges.append(self.edge(source=self.target, target=other))
+        workflow.outputs.append(WorkflowOutput(name="alias", source_node=self.target.id, source_port="out"))
+        self.assertEqual(self.validator.validate(workflow), [])
+
+    def test_unresolved_binding_node_does_not_produce_port_errors(self):
+        workflow = self.binding_workflow()
+        workflow.nodes[0].type = "unknown"
+        self.assertEqual([issue.code for issue in self.validator.validate(workflow)], ["unknown_node_type"])
 
     def test_unknown_types_on_unconnected_ports(self):
         self.registry.register(

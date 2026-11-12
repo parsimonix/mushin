@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, TypeAdapter
 
-from mushin.models.node import Edge, Node, NodeSpec, Port, Workflow
+from mushin.models.node import Edge, Node, NodeSpec, Port, PortDefault, Workflow, WorkflowInput, WorkflowOutput
 from mushin.models.registry import NodeRegistry, create_default_type_registry
 from mushin.models.run import NodeExecutionContext, NodeRunStatus, WorkflowRunner, WorkflowRunStatus
 
@@ -72,6 +72,125 @@ class WorkflowRunnerTests(unittest.IsolatedAsyncioTestCase):
         for record in [run, *run.nodes.values()]:
             self.assertLessEqual(record.started_at, record.finished_at)
             self.assertEqual(record.started_at.utcoffset(), timedelta(0))
+
+    def exposed_add(self):
+        node = self.register("add", self.add, ("a", "b"))
+        workflow = self.workflow([node])
+        workflow.inputs = [
+            WorkflowInput(name="left", target_node=node.id, target_port="a"),
+            WorkflowInput(name="right", target_node=node.id, target_port="b"),
+        ]
+        workflow.outputs = [WorkflowOutput(name="sum", source_node=node.id, source_port="out")]
+        return workflow
+
+    async def test_workflow_inputs_and_outputs(self):
+        workflow = self.exposed_add()
+        supplied = {"left": 2, "right": 3}
+        run = await self.runner.run(workflow, inputs=supplied)
+        self.assertEqual(run.status, WorkflowRunStatus.SUCCEEDED)
+        self.assertEqual(run.inputs, supplied)
+        self.assertEqual(run.outputs, {"sum": 5})
+        supplied["left"] = 99
+        self.assertEqual(run.inputs["left"], 2)
+
+    async def test_defaults_for_unconnected_and_exposed_inputs(self):
+        workflow = self.exposed_add()
+        node = workflow.nodes[0]
+        spec = self.registry.resolve(node.type, node.version).spec
+        spec.inputs[0].default = PortDefault(value=10)
+        spec.inputs[1].default = PortDefault(value=20)
+        for bindings in (list(workflow.inputs), []):
+            workflow.inputs = bindings
+            run = await self.runner.run(workflow)
+            self.assertEqual(run.status, WorkflowRunStatus.SUCCEEDED)
+            self.assertEqual(run.outputs, {"sum": 30})
+
+    async def test_supplied_values_override_defaults(self):
+        workflow = self.exposed_add()
+        spec = self.registry.resolve("add", 1).spec
+        spec.inputs[0].default = PortDefault(value=10)
+        run = await self.runner.run(workflow, inputs={"left": 0, "right": 3})
+        self.assertEqual(run.outputs, {"sum": 3})
+        run = await self.runner.run(workflow, inputs={"left": None, "right": 3})
+        self.assertEqual(run.error.code, "invalid_workflow_input")
+        workflow.inputs = workflow.inputs[1:]
+        source = self.register("constant", self.constant)
+        workflow.nodes.append(source)
+        workflow.edges.append(self.edge(source, workflow.nodes[0]))
+        run = await self.runner.run(workflow, inputs={"right": 3})
+        self.assertEqual(run.outputs, {"sum": 5})
+
+    async def test_invalid_default_prevents_all_execution(self):
+        workflow = self.exposed_add()
+        self.registry.resolve("add", 1).spec.inputs[0].default = PortDefault(value="bad")
+        run = await self.runner.run(workflow, inputs={"left": 2, "right": 3})
+        self.assertEqual(run.error.code, "invalid_workflow")
+        self.assertEqual(run.validation_issues[0].code, "invalid_port_default")
+        self.assertEqual(self.calls, [])
+
+    async def test_null_default_and_port_round_trip(self):
+        self.types.register("nullable", TypeAdapter(int | None))
+
+        async def echo(inputs, config, context):
+            return {"out": inputs["a"]}
+
+        node = self.register("echo", echo, ("a",), value_type="nullable")
+        port = self.registry.resolve("echo", 1).spec.inputs[0]
+        port.default = PortDefault(value=None)
+        restored = Port.model_validate_json(port.model_dump_json())
+        self.assertIsNotNone(restored.default)
+        self.assertIsNone(restored.default.value)
+        run = await self.runner.run(self.workflow([node]))
+        self.assertEqual(run.status, WorkflowRunStatus.SUCCEEDED)
+        self.assertEqual(run.nodes[node.id].outputs, {"out": None})
+        with self.assertRaises(ValueError):
+            Port(name="out", direction="output", type="nullable", default=PortDefault(value=None))
+
+    async def test_invalid_workflow_inputs_execute_no_nodes(self):
+        workflow = self.exposed_add()
+        for supplied, code in (
+            ({"left": 2}, "missing_workflow_input"),
+            ({"left": 2, "right": 3, "extra": 4}, "unexpected_workflow_input"),
+            ({"left": "bad", "right": 3}, "invalid_workflow_input"),
+            ({"left": None, "right": 3}, "invalid_workflow_input"),
+        ):
+            with self.subTest(code=code, supplied=supplied):
+                run = await self.runner.run(workflow, inputs=supplied)
+                self.assertEqual(run.status, WorkflowRunStatus.FAILED)
+                self.assertEqual(run.error.code, code)
+                self.assertEqual(run.outputs, {})
+                self.assertEqual(self.calls, [])
+                self.assertTrue(all(record.started_at is None for record in run.nodes.values()))
+
+    async def test_optional_workflow_input_and_output_can_be_omitted(self):
+        async def omitted(inputs, config, context):
+            self.assertEqual(dict(inputs), {})
+            return {}
+
+        node = self.register("optional", omitted, optional_output=True)
+        self.registry.resolve(node.type, node.version).spec.inputs.append(
+            Port(name="a", direction="input", type="number", required=False)
+        )
+        workflow = self.workflow([node])
+        workflow.inputs = [WorkflowInput(name="value", target_node=node.id, target_port="a")]
+        workflow.outputs = [WorkflowOutput(name="value", source_node=node.id, source_port="out")]
+        run = await self.runner.run(workflow)
+        self.assertEqual(run.status, WorkflowRunStatus.SUCCEEDED)
+        self.assertEqual(run.outputs, {})
+
+    async def test_nullable_workflow_input_is_present(self):
+        self.types.register("nullable", TypeAdapter(int | None))
+
+        async def echo(inputs, config, context):
+            return {"out": inputs["a"]}
+
+        node = self.register("echo", echo, ("a",), value_type="nullable")
+        workflow = self.workflow([node])
+        workflow.inputs = [WorkflowInput(name="value", target_node=node.id, target_port="a")]
+        workflow.outputs = [WorkflowOutput(name="value", source_node=node.id, source_port="out")]
+        run = await self.runner.run(workflow, inputs={"value": None})
+        self.assertEqual(run.status, WorkflowRunStatus.SUCCEEDED)
+        self.assertEqual(run.outputs, {"value": None})
 
     async def test_stable_ready_order_and_empty_graph(self):
         first = self.register("first", self.constant)

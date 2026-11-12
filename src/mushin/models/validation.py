@@ -18,6 +18,9 @@ class ValidationIssue(BaseModel):
     node_id: UUID | None = None
     port_name: str | None = None
     edge_index: int | None = Field(default=None, ge=0, description="Index in the workflow's edges list.")
+    binding_name: str | None = None
+    binding_direction: str | None = None
+    binding_index: int | None = Field(default=None, ge=0)
 
 
 class WorkflowValidator:
@@ -32,8 +35,8 @@ class WorkflowValidator:
 
         Check duplicate node IDs, unknown node types/versions, configuration,
         edge endpoints, port types, multiple connections to an input, missing
-        required inputs, and cycles. Required inputs currently need an edge;
-        exposed workflow inputs are not yet supported.
+        required inputs, workflow bindings, and cycles. Required inputs need
+        an incoming edge or an exposed workflow input.
         """
         specs, issues = self._validate_nodes(workflow)
         issues.extend(self._validate_declared_types(specs))
@@ -41,6 +44,7 @@ class WorkflowValidator:
         outputs = {node_id: {port.name: port for port in spec.outputs} for node_id, spec in specs.items()}
         incoming, edge_issues = self._validate_edges(workflow, inputs, outputs)
         issues.extend(edge_issues)
+        issues.extend(self._validate_bindings(workflow, inputs, outputs, incoming))
         issues.extend(self._validate_required_inputs(inputs, incoming))
         issues.extend(self._validate_cycles(workflow))
         return issues
@@ -74,6 +78,14 @@ class WorkflowValidator:
             for port in (*spec.inputs, *spec.outputs):
                 try:
                     self._type_registry.resolve(port.type)
+                    if port.default is not None:
+                        self._type_registry.validate(port.type, port.default.value)
+                except ValidationError as exc:
+                    messages = "; ".join(error["msg"] for error in exc.errors(include_url=False, include_input=False))
+                    issues.append(ValidationIssue(
+                        code="invalid_port_default", message=f"Invalid default for port {port.name!r}: {messages}",
+                        node_id=node_id, port_name=port.name,
+                    ))
                 except KeyError:
                     issues.append(
                         ValidationIssue(
@@ -159,14 +171,57 @@ class WorkflowValidator:
             )
         ]
 
+    def _validate_bindings(
+        self,
+        workflow: Workflow,
+        inputs: dict[UUID, dict[str, Port]],
+        outputs: dict[UUID, dict[str, Port]],
+        incoming: Counter[tuple[UUID, str]],
+    ) -> list[ValidationIssue]:
+        """Validate public names and endpoints; count input bindings as providers.
+
+        Binding types are inherited from their referenced ports. Input and
+        output names occupy separate namespaces.
+        """
+        node_ids = {node.id for node in workflow.nodes}
+        issues: list[ValidationIssue] = []
+        for direction, bindings, ports in (("input", workflow.inputs, inputs), ("output", workflow.outputs, outputs)):
+            names: set[str] = set()
+            for index, binding in enumerate(bindings):
+                if direction == "input":
+                    node_id, port_name = binding.target_node, binding.target_port
+                else:
+                    node_id, port_name = binding.source_node, binding.source_port
+                location = dict(
+                    node_id=node_id, port_name=port_name,
+                    binding_name=binding.name, binding_direction=direction, binding_index=index,
+                )
+                if binding.name in names:
+                    issues.append(ValidationIssue(
+                        code="duplicate_binding_name", message=f"Duplicate workflow {direction} name {binding.name!r}", **location,
+                    ))
+                names.add(binding.name)
+                if node_id not in node_ids:
+                    issues.append(ValidationIssue(code="missing_node", message="Workflow binding references an unknown node", **location))
+                elif node_id in ports and port_name not in ports[node_id]:
+                    issues.append(ValidationIssue(code="missing_port", message=f"Unknown {direction} port {port_name!r}", **location))
+                elif direction == "input" and port_name in ports.get(node_id, {}):
+                    key = (node_id, port_name)
+                    if incoming[key]:
+                        issues.append(ValidationIssue(
+                            code="conflicting_input_binding", message="Input already has an incoming edge or workflow binding", **location,
+                        ))
+                    incoming[key] += 1
+        return issues
+
     def _validate_required_inputs(
         self, inputs: dict[UUID, dict[str, Port]], incoming: Counter[tuple[UUID, str]]
     ) -> list[ValidationIssue]:
         return [
-            ValidationIssue(code="missing_required_input", message="Required input has no incoming edge", node_id=node_id, port_name=port.name)
+            ValidationIssue(code="missing_required_input", message="Required input has no incoming edge or workflow binding", node_id=node_id, port_name=port.name)
             for node_id, ports in inputs.items()
             for port in ports.values()
-            if port.required and not incoming[(node_id, port.name)]
+            if port.required and port.default is None and not incoming[(node_id, port.name)]
         ]
 
     def _validate_cycles(self, workflow: Workflow) -> list[ValidationIssue]:
