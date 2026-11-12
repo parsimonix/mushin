@@ -44,6 +44,32 @@ class GuessVideoTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((metadata.title, metadata.type, metadata.season, metadata.episode), ("Example Show", "episode", 1, [2, 3]))
         self.assertIsNone(metadata.year)
 
+    async def test_known_series_separates_episode_only_filename(self):
+        filename = "S01E03-The Unsettling Matter of the Spirit [3B28F408].mkv"
+        run = await self.guess(filename, {"series_title": "The Apothecary Diaries"})
+        self.assertEqual(run.status, WorkflowRunStatus.SUCCEEDED)
+        metadata = run.outputs["metadata"]
+        self.assertEqual(metadata.title, "The Apothecary Diaries")
+        self.assertEqual(metadata.episode_title, "The Unsettling Matter of the Spirit")
+        self.assertEqual((metadata.type, metadata.season, metadata.episode), ("episode", 1, 3))
+        self.assertIsNone(metadata.year)
+        self.assertEqual(metadata.model_dump()["crc32"], "3B28F408")
+
+    async def test_known_series_already_in_filename_is_not_duplicated(self):
+        run = await self.guess("The.Apothecary.Diaries.S01E03.The.Unsettling.Matter.of.the.Spirit.mkv",
+                               {"type": "episode", "series_title": "The Apothecary Diaries"})
+        metadata = run.outputs["metadata"]
+        self.assertEqual(metadata.title, "The Apothecary Diaries")
+        self.assertEqual(metadata.episode_title, "The Unsettling Matter of the Spirit")
+
+    async def test_invalid_series_context_never_calls_parser(self):
+        for config in ({"series_title": ""}, {"series_title": " "}, {"series_title": "Show/Season"},
+                       {"series_title": "Show\\Season"}, {"series_title": "Show", "type": "movie"}):
+            with self.subTest(config=config), patch("mushin.nodes.video.guess_video.guessit") as parse:
+                run = await self.guess("episode.mkv", config)
+                self.assertEqual(run.error.code, "invalid_workflow")
+                parse.assert_not_called()
+
     async def test_options_and_non_json_values(self):
         with patch("mushin.nodes.video.guess_video.guessit", return_value={"title": "News", "date": date(2026, 11, 11)}) as parse:
             run = await self.guess("News.mkv", {"type": "episode"})

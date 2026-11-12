@@ -27,7 +27,11 @@ def build_workflow(variables_type: str) -> Workflow:
     """Remux first so filename inference sees the destination extension."""
     source = Node(name="Import Video", type=ImportFile.spec.type)
     remux_to_mkv = Node(name="Remux to MKV", type=RemuxVideo.spec.type, config={"container": "mkv"})
-    guess_metadata = Node(name="Guess Metadata", type=GuessVideo.spec.type, config={"type": "episode"})
+    guess_metadata = Node(
+        name="Guess Metadata",
+        type=GuessVideo.spec.type,
+        config={"type": "episode", "series_title": "The Apothecary Diaries"},
+    )
     expose_metadata = Node(
         name="ToVariables",
         type=variables_type,
@@ -45,7 +49,7 @@ def build_workflow(variables_type: str) -> Workflow:
         },
     )
     rename_video_file = Node(name="Rename Video File", type=RenameFile.spec.type)
-    save_file = Node(name="Save Video File", type=SaveFile.spec.type)
+    save_file = Node(name="Save Video File", type=SaveFile.spec.type, config={"overwrite": True})
     return Workflow(
         name="Process TV Episode for Plex",
         nodes=[source, remux_to_mkv, guess_metadata, expose_metadata, gen_plex_filename, rename_video_file, save_file],
@@ -162,12 +166,10 @@ async def main(tools: MediaTools, *, input: Path, output: Path | None = None) ->
 
 def cli() -> None:
     parser = argparse.ArgumentParser(description="Import a video, remux to MKV, and name it using episode metadata.")
-    parser.add_argument(
-        "--input", "--source", type=Path, required=True, metavar="FILE", help="Import this episode file. The original is unchanged."
-    )
+    parser.add_argument("--input", "--source", type=Path, required=True, metavar="FILE", help="Import this episode file. The original is unchanged.")
     parser.add_argument("--output", type=Path, metavar="DIRECTORY", help="Keep the named MKV here; existing files are never replaced.")
     arguments = parser.parse_args()
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s")
     try:
         tools = MediaTools.discover()
         asyncio.run(main(tools, input=arguments.input, output=arguments.output))
@@ -175,5 +177,27 @@ def cli() -> None:
         parser.exit(1, f"Plex sample failed: {exc}\n")
 
 
+def cli_multifile() -> None:
+    parser = argparse.ArgumentParser(description="Import multiple videos, remux to MKV, and name them using episode metadata.")
+    parser.add_argument("--input", metavar="DIRECTORY", required=True, help="Import all video files in this directory. Originals are unchanged.")
+    parser.add_argument("--output", metavar="DIRECTORY", help="Keep the named MKVs here; existing files are never replaced.")
+    arguments = parser.parse_args()
+    logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(levelname)s %(name)s: %(message)s")
+    try:
+        tools = MediaTools.discover()
+        input_dir = Path(arguments.input)
+        if not input_dir.is_dir():
+            parser.exit(1, f"Input is not a directory: {input_dir}")
+        output_dir = Path(arguments.output) if arguments.output is not None else None
+        for source in sorted(input_dir.iterdir()):
+            if not source.is_file():
+                continue
+            print(f"\nProcessing {source} ...", flush=True)
+            asyncio.run(main(tools, input=source, output=output_dir))
+    except (OSError, RuntimeError) as exc:
+        parser.exit(1, f"Plex sample failed: {exc}\n")
+
+
 if __name__ == "__main__":
-    cli()
+    # cli()
+    cli_multifile()

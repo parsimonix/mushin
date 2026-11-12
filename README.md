@@ -54,9 +54,23 @@ are optional; their parentheses or separator are omitted when unavailable.
 Other required placeholders still report a missing-variable error.
 
 `--source` is an alias for `--input`. The original file is unchanged. The
-current template requires title, season, and episode number to be inferred
-from the filename. Without a year or episode title, it produces a name such
-as `Example Show - s01e02.mkv`.
+current template requires a series title, season, and episode number. Without
+a year or episode title, it produces a name such as `Example Show - s01e02.mkv`.
+
+When filenames contain only an episode number and episode title, configure
+the `GuessVideo` node with the known series:
+
+```python
+config={"type": "episode", "series_title": "The Apothecary Diaries"}
+```
+
+This supplies a synthetic series-folder context to GuessIt without changing
+the source or artifact filename. For example,
+`S01E03-The Unsettling Matter of the Spirit [3B28F408].mkv` is parsed with
+series title `The Apothecary Diaries` and episode title
+`The Unsettling Matter of the Spirit`. The Plex playground and its exported
+workflow use this context; change or remove `series_title` for other shows.
+Unlike a template default, this context affects how the filename is parsed.
 
 The template uses `s{season:02d}e{episode:02d}` to zero-pad integer values to
 at least two digits. Values above 99 retain all digits. Plain placeholders

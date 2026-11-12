@@ -18,6 +18,7 @@ nodes:
     version: 1
     config:
       type: episode
+      series_title: The Apothecary Diaries
   tovariables:
     name: ToVariables
     type: variables.from.video_metadata

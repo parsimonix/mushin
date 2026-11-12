@@ -19,10 +19,9 @@ class TemplatedStringConfig(BaseModel):
     @field_validator("template")
     @classmethod
     def validate_template(cls, value: str) -> str:
-        # Allow one bounded integer format for episode numbering; arbitrary
-        # specs can request huge padding or nested field evaluation.
-        for _, name, format_spec, conversion in Formatter().parse(value):
-            if name is not None and (not name.isidentifier() or format_spec not in ("", "02d") or conversion):
+        # TODO: Currently, allow :02d for integers, expand later to support other format specifiers and conversions.
+        for _literal_text, field_name, format_spec, conversion in Formatter().parse(value):
+            if field_name is not None and (not field_name.isidentifier() or format_spec not in ("", "02d") or conversion):
                 raise ValueError("Use named placeholders such as {title} or {season:02d}; other formatting, conversions, and attribute access are unsupported")
         return value
 
@@ -59,7 +58,10 @@ class TemplatedString:
     )
 
     async def execute(
-        self, inputs: Mapping[str, object], config: Mapping[str, JsonValue], context: ExecutionContext,
+        self,
+        inputs: Mapping[str, object],
+        config: Mapping[str, JsonValue],
+        context: ExecutionContext,
     ) -> Mapping[str, object]:
         context.raise_if_cancelled()
         settings = TemplatedStringConfig.model_validate(dict(config))

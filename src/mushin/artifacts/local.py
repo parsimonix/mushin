@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import shutil
 from collections.abc import AsyncGenerator, Callable
@@ -77,9 +78,7 @@ class LocalArtifactStore:
         with TemporaryDirectory(dir=self._root, prefix=".input-") as directory:
             path = Path(directory) / "content"
             # A hard link would expose stored bytes to writes by external tools.
-            copy = asyncio.create_task(asyncio.to_thread(
-                shutil.copyfile, self._root / ref.content_id.hex, path
-            ))
+            copy = asyncio.create_task(asyncio.to_thread(shutil.copyfile, self._root / ref.content_id.hex, path))
             try:
                 await asyncio.shield(copy)
                 yield path
@@ -117,7 +116,7 @@ class LocalArtifactStore:
             os.link(output.path, self._root / ref.content_id.hex)
             output.ref = ref
 
-    async def save(self, ref: ArtifactRef, destination: str | Path) -> Path:
+    async def save(self, ref: ArtifactRef, destination: str | Path, overwrite: bool = False) -> Path:
         """Copy content into an existing directory, failing on any name collision.
 
         Publish only complete files. Existing files and symlinks are never
@@ -125,9 +124,9 @@ class LocalArtifactStore:
         """
         # Pydantic's model_copy/model_construct can bypass filename validation.
         ref = ArtifactRef.model_validate(ref)
-        return await asyncio.to_thread(self._save, ref, Path(destination).absolute())
+        return await asyncio.to_thread(self._save, ref, Path(destination).absolute(), overwrite)
 
-    def _save(self, ref: ArtifactRef, destination: Path) -> Path:
+    def _save(self, ref: ArtifactRef, destination: Path, overwrite: bool) -> Path:
         directory = destination.resolve(strict=True)
         target = directory / ref.filename
         # Stage on the destination filesystem so the final hard link is atomic.
@@ -135,8 +134,73 @@ class LocalArtifactStore:
             shutil.copyfileobj(incoming, staging)
             staging.flush()
             # Linking fails on collisions, including symlinks, without replacing them.
+            if overwrite and target.exists():
+                logging.getLogger(__name__).warning("Overwriting existing file %s", target)
+                target.unlink()
             os.link(staging.name, target)
         return target
+
+    async def delete(self, ref: ArtifactRef, directory: str | Path, allow_missing: bool = True) -> Path:
+        """Remove a file from an existing directory, failing on any name collision.
+
+        Cancellation may finish after the file has been deleted.
+        """
+        # Pydantic's model_copy/model_construct can bypass filename validation.
+        ref = ArtifactRef.model_validate(ref)
+        return await asyncio.to_thread(self._delete, ref, Path(directory).absolute(), allow_missing)
+
+    def _delete(self, ref: ArtifactRef, directory: Path, allow_missing: bool) -> Path:
+        directory = directory.resolve(strict=True)
+        target = directory / ref.filename
+        if not target.exists():
+            if allow_missing:
+                return target
+            raise FileNotFoundError(f"File {target} does not exist")
+        if not target.is_file():
+            raise ValueError(f"File {target} is not a regular file")
+        if target.is_symlink():
+            raise ValueError(f"File {target} is a symlink, refusing to delete")
+        target.unlink()
+        return target
+
+    async def move(
+        self, ref: ArtifactRef, source_directory: str | Path, destination_directory: str | Path, overwrite: bool = False, create_destination: bool = True
+    ) -> Path:
+        """Move a file from one directory to another, failing on any name collision.
+
+        Cancellation may finish after the file has been moved.
+        """
+        # Pydantic's model_copy/model_construct can bypass filename validation.
+        ref = ArtifactRef.model_validate(ref)
+        return await asyncio.to_thread(
+            self._move,
+            ref,
+            Path(source_directory).absolute(),
+            Path(destination_directory).absolute(),
+            overwrite,
+            create_destination,
+        )
+
+    def _move(self, ref: ArtifactRef, source_directory: Path, destination_directory: Path, overwrite: bool, create_destination: bool) -> Path:
+        source_directory = source_directory.resolve(strict=True)
+        destination_directory = destination_directory.resolve(strict=True)
+        source = source_directory / ref.filename
+        destination = destination_directory / ref.filename
+        if not source.exists():
+            raise FileNotFoundError(f"Source file {source} does not exist")
+        if not source.is_file():
+            raise ValueError(f"Source file {source} is not a regular file")
+        if source.is_symlink():
+            raise ValueError(f"Source file {source} is a symlink, refusing to move")
+        if create_destination:
+            destination_directory.mkdir(parents=True, exist_ok=True)
+        if destination.exists() and not overwrite:
+            raise FileExistsError(f"Destination file {destination} already exists")
+        if overwrite and destination.exists():
+            logging.getLogger(__name__).warning("Overwriting existing file %s", destination)
+            destination.unlink()
+        os.rename(source, destination)
+        return destination
 
     def _import_file(self, source: Path, ref: ArtifactRef) -> None:
         with source.open("rb") as incoming:
