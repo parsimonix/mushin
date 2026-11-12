@@ -23,3 +23,12 @@ class PortValueError(ValueError):
         self.node_id = node_id
         self.port_name = port.name
         super().__init__(f"Node {node_id} {port.direction} port {port.name!r} (type {port.type!r}): {message}")
+
+
+class MediaToolError(RuntimeError):
+    """An actionable discovery failure with a stable machine-readable code."""
+
+    def __init__(self, code: str, message: str, *, executable: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.executable = executable

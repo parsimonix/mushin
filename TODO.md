@@ -12,7 +12,7 @@ container; a transcode re-encodes selected streams.
 Complete and verify each step before moving to the next:
 
 1. [x] Add isolated input-path leases and staged output publication to the local artifact store; test isolation, publication, and cleanup.
-2. [ ] Add configurable FFmpeg/ffprobe discovery, version reporting, and capability checks.
+2. [x] Add configurable FFmpeg/ffprobe discovery, version reporting, and capability checks.
 3. [ ] Build the asynchronous process runner with bounded diagnostics, timeout handling, and cancellation that terminates and reaps the child before releasing artifact leases.
 4. [ ] Add typed ffprobe metadata parsing and define explicit stream-selection policies.
 5. [ ] Implement typed `RemuxVideo` configuration, explicit stream copying, output verification, and artifact publication.
@@ -33,8 +33,8 @@ Complete and verify each step before moving to the next:
 
 ## 2. FFmpeg and ffprobe service
 
-- [ ] Locate configurable FFmpeg and ffprobe executables and report missing binaries clearly.
-- [ ] Record executable versions and check required container/codec capabilities.
+- [x] Locate configurable FFmpeg and ffprobe executables and report missing binaries clearly.
+- [x] Record executable versions and check required container/codec capabilities.
 - [ ] Run tools with `asyncio.create_subprocess_exec()` and argument lists.
 - [ ] Disable interactive stdin for FFmpeg.
 - [ ] Drain subprocess output concurrently and retain a bounded stderr tail for diagnostics.
