@@ -45,20 +45,20 @@ class GuessVideoTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(metadata.year)
 
     async def test_options_and_non_json_values(self):
-        with patch("mushin.nodes.guess_video.guessit", return_value={"title": "News", "date": date(2026, 11, 11)}) as parse:
+        with patch("mushin.nodes.video.guess_video.guessit", return_value={"title": "News", "date": date(2026, 11, 11)}) as parse:
             run = await self.guess("News.mkv", {"type": "episode"})
         parse.assert_called_once_with("News.mkv", {"no_user_config": True, "type": "episode"})
         self.assertEqual(run.outputs["metadata"].model_dump()["date"], "2026-11-11")
 
     async def test_parser_failure_is_a_structured_run_error(self):
-        with patch("mushin.nodes.guess_video.guessit", side_effect=RuntimeError("parse failed")):
+        with patch("mushin.nodes.video.guess_video.guessit", side_effect=RuntimeError("parse failed")):
             run = await self.guess("example.mkv")
         self.assertEqual(run.status, WorkflowRunStatus.FAILED)
         self.assertIn("parse failed", run.error.message)
         self.assertEqual(run.outputs, {})
 
     async def test_invalid_configuration_never_calls_parser(self):
-        with patch("mushin.nodes.guess_video.guessit") as parse:
+        with patch("mushin.nodes.video.guess_video.guessit") as parse:
             run = await self.guess("example.mkv", {"type": "invalid"})
         self.assertEqual(run.error.code, "invalid_workflow")
         parse.assert_not_called()

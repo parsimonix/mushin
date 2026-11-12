@@ -7,15 +7,29 @@ Both nodes accept an `ArtifactRef` and return a new reference. The source
 content remains unchanged. A remux copies encoded streams into another
 container; a transcode re-encodes selected streams.
 
+## Implementation order
+
+Complete and verify each step before moving to the next:
+
+1. [x] Add isolated input-path leases and staged output publication to the local artifact store; test isolation, publication, and cleanup.
+2. [ ] Add configurable FFmpeg/ffprobe discovery, version reporting, and capability checks.
+3. [ ] Build the asynchronous process runner with bounded diagnostics, timeout handling, and cancellation that terminates and reaps the child before releasing artifact leases.
+4. [ ] Add typed ffprobe metadata parsing and define explicit stream-selection policies.
+5. [ ] Implement typed `RemuxVideo` configuration, explicit stream copying, output verification, and artifact publication.
+6. [ ] Add generated video fixtures and integration coverage for success, incompatible containers, malformed input, missing tools, timeout, and cancellation.
+7. [ ] Add the import → remux → save playground and installation/testing documentation.
+8. [ ] Add execution progress events and FFmpeg progress parsing, including unknown durations and throttling.
+9. [ ] Implement and test one explicit transcoding profile using the same services.
+
 ## 1. Managed artifact file access
 
-- [ ] Add managed input-path access for external tools without loading video bytes into Python memory.
-- [ ] Add temporary output-file creation within the artifact workspace.
-- [ ] Publish completed output as a new artifact only after successful processing.
-- [ ] Support an explicit output format: stored content paths have no filename extension.
-- [ ] Remove partial output on failure, timeout, or cancellation.
-- [ ] Define workspace ownership and cleanup while an external process is using files.
-- [ ] Verify source isolation, successful publication, and failed-output cleanup.
+- [x] Add managed input-path access for external tools without loading video bytes into Python memory.
+- [x] Add temporary output-file creation within the artifact workspace.
+- [x] Publish completed output as a new artifact only after successful processing.
+- [x] Define extensionless output paths requiring callers to pass an explicit format to external tools.
+- [x] Remove partial output when the processing block raises on failure, timeout, or cancellation.
+- [x] Define workspace ownership and cleanup while an external process is using files.
+- [x] Verify source isolation, successful publication, and failed-output cleanup.
 
 ## 2. FFmpeg and ffprobe service
 

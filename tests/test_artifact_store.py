@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -72,6 +73,52 @@ class LocalArtifactStoreTests(unittest.IsolatedAsyncioTestCase):
         with patch("mushin.artifacts.local.uuid4", return_value=ref.content_id):
             with self.assertRaises(FileExistsError):
                 await self.store.create(b"replacement", filename="other.txt")
+        self.assertEqual(await self.store.read(ref), b"original")
+        self.assertEqual(len(list(self.root.iterdir())), 1)
+
+    async def test_input_lease_is_isolated_and_removed(self):
+        ref = await self.store.create(b"source", filename="video.mp4")
+        async with self.store.input_path(ref) as path:
+            self.assertEqual(path.suffix, "")
+            self.assertEqual(path.read_bytes(), b"source")
+            path.write_bytes(b"modified by tool")
+            self.assertEqual(await self.store.read(ref), b"source")
+        self.assertFalse(path.exists())
+        self.assertEqual(len(list(self.root.iterdir())), 1)
+
+    async def test_output_publishes_only_after_success(self):
+        async with self.store.output_file(filename="converted.mkv") as output:
+            self.assertFalse(output.path.exists())
+            self.assertEqual(output.path.suffix, "")
+            output.path.write_bytes(b"converted")
+            self.assertIsNone(output.ref)
+        self.assertEqual(output.ref.filename, "converted.mkv")
+        self.assertEqual(await self.store.read(output.ref), b"converted")
+        self.assertFalse(output.path.exists())
+        self.assertEqual(len(list(self.root.iterdir())), 1)
+
+    async def test_failed_and_cancelled_outputs_are_discarded(self):
+        for error in (RuntimeError("process failed"), TimeoutError(), asyncio.CancelledError()):
+            with self.assertRaises(type(error)):
+                async with self.store.output_file(filename="output.mkv") as output:
+                    output.path.write_bytes(b"partial")
+                    raise error
+            self.assertIsNone(output.ref)
+            self.assertEqual(list(self.root.iterdir()), [])
+
+    async def test_missing_output_is_not_published(self):
+        with self.assertRaisesRegex(ValueError, "regular file"):
+            async with self.store.output_file(filename="output.mkv"):
+                pass
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    async def test_output_publication_collision_preserves_content(self):
+        ref = await self.store.create(b"original", filename="source.mp4")
+        with patch("mushin.artifacts.local.uuid4", return_value=ref.content_id):
+            with self.assertRaises(FileExistsError):
+                async with self.store.output_file(filename="output.mkv") as output:
+                    output.path.write_bytes(b"replacement")
+        self.assertIsNone(output.ref)
         self.assertEqual(await self.store.read(ref), b"original")
         self.assertEqual(len(list(self.root.iterdir())), 1)
 
