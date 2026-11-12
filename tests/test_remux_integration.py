@@ -228,6 +228,8 @@ class RemuxIntegrationTests(unittest.IsolatedAsyncioTestCase):
                       patch.object(self.store, "output_file", checked_output)):
                     task = asyncio.create_task(self.remux(ref, "mp4", runner=runner, timeout=2 if mode == "timeout" else 10))
                     try:
+                        # Synchronize on real FFmpeg output; a fixed sleep might
+                        # interrupt the input probe instead on a slower host.
                         async with asyncio.timeout(5):
                             while not children or runner.output is None or not runner.output.exists():
                                 if task.done():

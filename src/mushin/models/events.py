@@ -19,6 +19,7 @@ class StateEvent(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    # Wall-clock timestamps can tie or jump; delivery order is the run's ordering.
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     run_id: UUID
     error: RunError | None = None

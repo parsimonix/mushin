@@ -41,6 +41,7 @@ class GuessVideo:
     ) -> Mapping[str, object]:
         context.raise_if_cancelled()
         ref = cast(ArtifactRef, inputs["file"])
+        # A workflow's guesses must not depend on the host user's GuessIt settings.
         options: dict[str, object] = {"no_user_config": True}
         if config.get("type") is not None:
             options["type"] = config["type"]

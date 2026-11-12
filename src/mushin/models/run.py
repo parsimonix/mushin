@@ -99,6 +99,7 @@ class WorkflowRunner:
         callback exceptions are logged and do not change execution outcomes.
         Callbacks should return promptly; async callbacks are not supported.
         """
+        # The caller may keep editing the draft while this run awaits nodes.
         snapshot = workflow.model_copy(deep=True)
         run = WorkflowRun(workflow=snapshot, started_at=self._now())
         logger.info("Run %s: starting workflow %s (%s)", run.id, snapshot.name, snapshot.id)
@@ -162,7 +163,8 @@ class WorkflowRunner:
             logger.info("Run %s: cancelling workflow", run.id)
             run.status = WorkflowRunStatus.CANCELLED
             self._finish_pending(run, on_event=on_event)
-            # Preserve asyncio task cancellation semantics for callers.
+            # Cooperative cancellation returns a cancelled run record; actual
+            # task cancellation must still propagate to the awaiting caller.
             task = current_task()
             if task is not None and task.cancelling():
                 logger.debug("Run %s: propagating asyncio task cancellation", run.id)
@@ -211,10 +213,12 @@ class WorkflowRunner:
         try:
             on_event(event)
         except Exception:
+            # Observers report execution; their failures must not fail the workflow.
             logger.exception("Run %s: event callback failed", event.run_id)
 
     def _emit_run(self, run: WorkflowRun, on_event: Callable[[ExecutionEvent], None] | None) -> None:
         if on_event is not None:
+            # Frozen event models do not freeze nested errors; copy for observers.
             self._emit(
                 RunStateEvent(
                     run_id=run.id,
@@ -266,6 +270,8 @@ class WorkflowRunner:
         positions = {node.id: index for index, node in enumerate(workflow.nodes)}
         ready: list[tuple[int, UUID]] = []
         ordered: list[Node] = []
+        # A heap lets newly unblocked nodes compete with all ready nodes by
+        # draft order, rather than processing topological batches arbitrarily.
         while sorter.is_active():
             for node_id in sorter.get_ready():
                 heappush(ready, (positions[node_id], node_id))
@@ -293,11 +299,16 @@ class WorkflowRunner:
             inputs = self._collect_inputs(run, node, registration.spec)
             logger.debug("Run %s node %s: collected input ports %s", run.id, node.id, list(inputs))
             inputs = self._validate_values(node.id, registration.spec.inputs, inputs)
+            # Apply config defaults and give executors the same JSON value
+            # representation used in saved workflows.
             config = registration.spec.config_model.model_validate(node.config).model_dump(mode="json")
             logger.debug("Run %s node %s: inputs and configuration validated; invoking executor", run.id, node.id)
+            # Protect port/config bindings without converting structured runtime
+            # values to JSON; downstream ports still revalidate those values.
             outputs = await registration.executor.execute(MappingProxyType(inputs), MappingProxyType(config), context)
             logger.debug("Run %s node %s: executor returned; checking output contract", run.id, node.id)
             outputs = self._check_outputs(outputs, registration.spec)
+            # Publish node outputs only after the complete output contract passes.
             record.outputs = self._validate_values(node.id, registration.spec.outputs, outputs)
             record.status = NodeRunStatus.SUCCEEDED
         except CancelledError:
@@ -327,6 +338,7 @@ class WorkflowRunner:
                     inputs[edge.target_port] = outputs[edge.source_port]
         for port in spec.inputs:
             if port.name not in inputs and port.default is not None:
+                # A mutable default must not leak executor edits into later runs.
                 inputs[port.name] = deepcopy(port.default.value)
         missing = [port.name for port in spec.inputs if port.required and port.name not in inputs]
         if missing:
@@ -368,6 +380,8 @@ class WorkflowRunner:
         """Block all descendants of a failure and cancel other pending nodes."""
         blocked: set[UUID] = set()
         if failed_node is not None:
+            # Only descendants lost a dependency; unrelated pending work is
+            # cancelled because this sequential runner stops on first failure.
             children: dict[UUID, set[UUID]] = {}
             for edge in run.workflow.edges:
                 children.setdefault(edge.source_node, set()).add(edge.target_node)

@@ -118,6 +118,8 @@ def _version(path: Path, name: str, timeout: float) -> ToolExecutable:
 def _inventory(output: str, kind: str, path: Path) -> frozenset[str]:
     # Ignore legend rows (whose name is '='); support comma-separated aliases
     # and the optional device flag in newer FFmpeg format listings.
+    # Device flags may be separated ("D d"), so whitespace is part of the flag
+    # grammar; horizontal spacing also prevents matching across listing rows.
     flags = r"[DE.]{1,2}(?: ?d)?" if kind in ("muxers", "demuxers") else r"[VAS.][A-Z.]{5}"
     pattern = re.compile(rf"^[ \t]+{flags}[ \t]+([a-zA-Z0-9_][a-zA-Z0-9_,.-]*)[ \t]+\S", re.MULTILINE)
     names = frozenset(name for match in pattern.finditer(output) for name in match[1].split(","))

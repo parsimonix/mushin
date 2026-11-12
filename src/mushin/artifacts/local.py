@@ -76,6 +76,7 @@ class LocalArtifactStore:
         self._root.mkdir(parents=True, exist_ok=True)
         with TemporaryDirectory(dir=self._root, prefix=".input-") as directory:
             path = Path(directory) / "content"
+            # A hard link would expose stored bytes to writes by external tools.
             copy = asyncio.create_task(asyncio.to_thread(
                 shutil.copyfile, self._root / ref.content_id.hex, path
             ))
@@ -106,8 +107,11 @@ class LocalArtifactStore:
         self._root.mkdir(parents=True, exist_ok=True)
         with TemporaryDirectory(dir=self._root, prefix=".output-") as directory:
             output = ArtifactOutput(path=Path(directory) / "content")
+            # Exceptions thrown into this yield skip publication; the directory
+            # context still removes any partial output.
             yield output
-            # No await between publication and assigning the reference.
+            # No await here: cancellation must not separate publication from
+            # handing the caller its new reference.
             if output.path.is_symlink() or not output.path.is_file():
                 raise ValueError("Artifact output must be a regular file")
             os.link(output.path, self._root / ref.content_id.hex)
@@ -119,15 +123,18 @@ class LocalArtifactStore:
         Publish only complete files. Existing files and symlinks are never
         replaced. Cancellation may finish after the file has been saved.
         """
+        # Pydantic's model_copy/model_construct can bypass filename validation.
         ref = ArtifactRef.model_validate(ref)
         return await asyncio.to_thread(self._save, ref, Path(destination).absolute())
 
     def _save(self, ref: ArtifactRef, destination: Path) -> Path:
         directory = destination.resolve(strict=True)
         target = directory / ref.filename
+        # Stage on the destination filesystem so the final hard link is atomic.
         with (self._root / ref.content_id.hex).open("rb") as incoming, NamedTemporaryFile(dir=directory, prefix=".pending-") as staging:
             shutil.copyfileobj(incoming, staging)
             staging.flush()
+            # Linking fails on collisions, including symlinks, without replacing them.
             os.link(staging.name, target)
         return target
 
@@ -141,4 +148,5 @@ class LocalArtifactStore:
         with NamedTemporaryFile(dir=self._root, prefix=".pending-") as staging:
             write(staging)
             staging.flush()
+            # The content keeps its inode after the temporary staging name is removed.
             os.link(staging.name, self._root / ref.content_id.hex)

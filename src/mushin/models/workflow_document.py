@@ -58,6 +58,7 @@ class WorkflowDocument(BaseModel):
         """Resolve local keys, leaving graph/type validation to WorkflowValidator."""
         return Workflow(
             id=self.id, name=self.name, schema_version=self.schema_version,
+            # Local keys become display names, but never replace persistent UUIDs.
             nodes=[node.model_copy(deep=True, update={"name": node.name or key}) for key, node in self.nodes.items()],
             edges=[Edge(
                 source_node=self.nodes[edge.source_node].id, source_port=edge.source_port,

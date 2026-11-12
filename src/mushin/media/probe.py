@@ -23,8 +23,11 @@ def _unknown(value: object) -> object:
     return value
 
 
+# ffprobe emits times as numeric strings or N/A; reject non-finite values so
+# duration comparisons and progress calculations remain meaningful.
 Seconds = Annotated[float, Field(allow_inf_nan=False), BeforeValidator(_unknown)]
 Duration = Annotated[float | None, Field(ge=0, allow_inf_nan=False), BeforeValidator(_unknown)]
+# bool is an int subclass in Python, but never a valid stream index or flag.
 Index = Annotated[StrictInt, Field(ge=0)]
 Flag = Annotated[StrictInt, Field(ge=0, le=1)]
 
@@ -81,6 +84,7 @@ class MediaInfo(ProbeModel):
 
     @model_validator(mode="after")
     def unique_stream_indices(self) -> MediaInfo:
+        # Stream selection maps by absolute index, so duplicates are ambiguous.
         indices = [stream.index for stream in self.streams]
         if len(indices) != len(set(indices)):
             raise ValueError("Duplicate stream indices in probe output")
@@ -89,6 +93,8 @@ class MediaInfo(ProbeModel):
     @property
     def duration(self) -> float | None:
         """Container-reported seconds; unknown stays unknown."""
+        # Streams can start at different offsets; their longest duration is
+        # not necessarily the container duration.
         return self.format.duration
 
 
@@ -101,6 +107,7 @@ class MediaProbe:
 
     async def probe_path(self, path: str | Path, *, timeout: float = 30, cancellation: asyncio.Event | None = None) -> MediaInfo:
         """Probe a local file; its owner keeps it alive until this await ends."""
+        # An absolute path cannot be mistaken for a leading option or URL scheme.
         result = await self.runner.ffprobe(
             self.tools,
             ["-v", "error", "-of", "json", "-show_format", "-show_streams", "-show_chapters", "-i", str(Path(path).absolute())],

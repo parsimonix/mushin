@@ -17,7 +17,8 @@ class TemplatedStringConfig(BaseModel):
     @field_validator("template")
     @classmethod
     def validate_template(cls, value: str) -> str:
-        # Allow plain named placeholders and escaped {{ / }} braces only.
+        # Restrict interpolation to named values; Python formatting otherwise
+        # also allows attribute/index traversal and implicit value conversions.
         for _, name, format_spec, conversion in Formatter().parse(value):
             if name is not None and (not name.isidentifier() or format_spec or conversion):
                 raise ValueError("Use plain named placeholders such as {title}; formatting and attribute access are unsupported")

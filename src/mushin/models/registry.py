@@ -75,6 +75,7 @@ class TypeRegistry:
         pydantic.ValidationError for invalid values. Callers attach node and
         port identifiers when reporting failures.
         """
+        # Edges must not silently turn numeric strings or booleans into numbers.
         return self.resolve(type_id).validate_python(value, strict=True)
 
 

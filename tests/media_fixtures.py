@@ -17,6 +17,8 @@ class MediaFixtures:
         try:
             self.tools.require(**requirements)
         except MediaToolError as exc:
+            # Missing optional fixture support is a skip; actual tool failures
+            # must still fail the test rather than hide a regression.
             if exc.code != "missing_capability":
                 raise
             raise unittest.SkipTest(str(exc)) from exc
@@ -27,6 +29,7 @@ class MediaFixtures:
                      encoders=[video_codec, *([audio_codec] if audio_tracks else []), *(["srt"] if extras else [])])
         path = self.root / name
         arguments = ["-v", "error", "-f", "lavfi", "-i", "color=size=32x32:rate=5:duration=1"]
+        # Distinct tones and language tags make audio tracks distinguishable.
         for track in range(audio_tracks):
             arguments += ["-f", "lavfi", "-i", f"sine=frequency={440 + track * 220}:sample_rate=48000:duration=1"]
         if extras:
@@ -41,9 +44,11 @@ class MediaFixtures:
         for track in range(audio_tracks):
             arguments += ["-map", f"{track + 1}:a:0", f"-metadata:s:a:{track}", f"language={('eng', 'fra')[track % 2]}"]
         if extras:
+            # Input zero is video, followed by audio inputs, subtitles, then chapters.
             arguments += ["-map", f"{audio_tracks + 1}:s:0", "-c:s", "srt",
                           "-map_chapters", str(audio_tracks + 2), "-attach", str(attachment),
                           "-metadata:s:t:0", "mimetype=text/plain", "-metadata:s:t:0", "filename=notes.txt"]
+        # Tiny fixtures need only one encoding thread, independent of host CPU count.
         arguments += ["-c:v", video_codec, "-threads:v", "1"]
         if audio_tracks:
             arguments += ["-c:a", audio_codec]
@@ -58,6 +63,7 @@ class MediaFixtures:
         await self.runner.ffmpeg(self.tools, ["-v", "error", "-f", "lavfi", "-i", "color=c=red:size=16x16",
                                              "-frames:v", "1", "-c:v", "png", "-threads:v", "1", str(cover)], timeout=15)
         result = self.root / "with-cover.mp4"
+        # The disposition distinguishes embedded art from a second playable video.
         await self.runner.ffmpeg(self.tools, ["-v", "error", "-i", str(base), "-i", str(cover),
                                              "-map", "0", "-map", "1:v:0", "-c", "copy",
                                              "-disposition:v:1", "attached_pic", str(result)], timeout=15)

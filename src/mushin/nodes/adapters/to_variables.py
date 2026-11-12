@@ -38,6 +38,8 @@ class ToVariables:
         if not isinstance(variables, dict):
             raise ValueError("ToVariables requires a model that dumps to a field mapping")
         options = ToVariablesConfig.model_validate(dict(config))
+        # Select and omit before rejecting nested values, so unused metadata
+        # fields cannot prevent rendering a valid subset of scalar variables.
         if options.fields is not None:
             missing = [name for name in options.fields if name not in variables]
             if missing:
@@ -46,6 +48,7 @@ class ToVariables:
         if options.omit_none:
             variables = {name: item for name, item in variables.items() if item is not None}
         if options.list_separator is not None:
+            # Join only scalar lists; nested structures must not become opaque text.
             variables = {
                 name: options.list_separator.join(str(element) for element in item)
                 if isinstance(item, list) and all(isinstance(element, (str, int, float, bool)) for element in item)

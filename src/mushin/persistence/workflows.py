@@ -45,6 +45,7 @@ class _WorkflowLoader(yaml.SafeLoader):
         for key_node, value_node in node.value:
             key = self.construct_object(key_node, deep=deep)
             try:
+                # SafeLoader normally keeps the last value, hiding authoring mistakes.
                 if key in mapping:
                     raise yaml.constructor.ConstructorError(
                         None,
@@ -114,6 +115,7 @@ class YamlWorkflowRepository:
         self._root.mkdir(parents=True, exist_ok=True)
         staging_path = None
         try:
+            # Same-filesystem staging lets replace publish the complete file atomically.
             with NamedTemporaryFile(
                 mode="w",
                 encoding="utf-8",
@@ -124,6 +126,7 @@ class YamlWorkflowRepository:
                 staging_path = Path(staging.name)
                 staging.write(document)
                 staging.flush()
+                # Flush file data before exposing the new document name to readers.
                 os.fsync(staging.fileno())
             os.replace(staging_path, path)
         finally:
@@ -138,6 +141,7 @@ class YamlWorkflowRepository:
         try:
             data = yaml.load(path.read_text(encoding="utf-8"), Loader=_WorkflowLoader)
             workflow = Workflow.model_validate(data)
+            # Loading by one ID must never return a document claiming another ID.
             if workflow.id != workflow_id:
                 raise WorkflowDocumentError(f"Workflow ID does not match filename: {path}")
             return workflow
@@ -154,6 +158,7 @@ class YamlWorkflowRepository:
                 workflow_id = UUID(hex=path.stem)
             except ValueError:
                 continue
+            # List only canonical repository files, leaving authored YAML imports alone.
             if path == self._path(workflow_id):
                 workflows.append(self._load(workflow_id))
         return workflows

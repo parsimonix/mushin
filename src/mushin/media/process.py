@@ -48,12 +48,15 @@ class ProcessRunner:
         if cancellation is not None and cancellation.is_set():
             raise asyncio.CancelledError
         stop = asyncio.Event()
-        # Never cancel the supervisor: it must retain ownership during launch.
+        # Cancelling during spawn can lose the child handle. Signal the
+        # supervisor instead so it owns the child through launch and cleanup.
         operation = asyncio.create_task(self._execute(str(executable), tuple(arguments), stop))
         cancelled = asyncio.create_task(cancellation.wait()) if cancellation is not None else None
         try:
             watched = {operation} if cancelled is None else {operation, cancelled}
+            # wait() leaves pending tasks alive so the supervisor can clean up.
             done, _ = await asyncio.wait(watched, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            # A cancellation request wins even if completion is ready too.
             if cancelled is not None and cancelled in done:
                 raise asyncio.CancelledError
             if operation not in done:
@@ -68,6 +71,7 @@ class ProcessRunner:
             if cancelled is not None:
                 cancelled.cancel()
             interrupted = False
+            # Repeated task.cancel() calls must not interrupt child cleanup.
             while not operation.done():
                 try:
                     await asyncio.shield(operation)
@@ -76,6 +80,7 @@ class ProcessRunner:
                 except Exception:  # noqa: BLE001 - Don't catch blind exception
                     break
             if not operation.cancelled():
+                # Cancellation may have won the race; still retrieve task errors.
                 operation.exception()
             if cancelled is not None:
                 # Event.wait owns no external resources.
@@ -113,6 +118,7 @@ class ProcessRunner:
             nonlocal overflow
             while chunk := await stream.read(64 * 1024):
                 if is_stderr:
+                    # Failure details usually appear last; older log output can go.
                     stderr.extend(chunk)
                     del stderr[: -self.stderr_limit]
                 else:
@@ -121,9 +127,12 @@ class ProcessRunner:
                     if len(chunk) > available:
                         overflow = True
                         stop.set()
+                        # Keep draining after overflow so shutdown cannot block
+                        # on a full pipe while the child is being terminated.
 
         assert process.stdout is not None and process.stderr is not None
         readers = [asyncio.create_task(drain(process.stdout, is_stderr=False)), asyncio.create_task(drain(process.stderr, is_stderr=True))]
+        # A child can block on either pipe; waiting for exit alone can deadlock.
         completion = asyncio.gather(process.wait(), *readers)
         stopped = asyncio.create_task(stop.wait())
         try:
@@ -135,6 +144,7 @@ class ProcessRunner:
                 except ProcessLookupError:
                     pass
                 try:
+                    # The grace deadline must not cancel pipe-draining tasks.
                     await asyncio.wait_for(asyncio.shield(completion), self.grace_period)
                 except TimeoutError:
                     if process.returncode is None:
@@ -155,6 +165,8 @@ class ProcessRunner:
                 returncode=result.returncode,
                 stderr=result.stderr,
             )
+        # Deliberate termination is reported by run() as timeout/cancellation,
+        # rather than being mistaken for an ordinary command failure.
         if result.returncode and not stop.is_set():
             raise MediaToolError(
                 "command_failed",

@@ -29,10 +29,13 @@ def matches_container(path: Path, info: MediaInfo, container: str) -> bool:
 def _vint(data: bytes, offset: int, *, identifier: bool = False) -> tuple[int, int]:
     if offset >= len(data) or data[offset] == 0:
         raise ValueError("Missing EBML variable integer")
+    # Leading zero bits locate the marker bit, which encodes the byte width.
     width = 8 - data[offset].bit_length() + 1
     if width > (4 if identifier else 8) or offset + width > len(data):
         raise ValueError("Invalid EBML variable integer")
     value = int.from_bytes(data[offset:offset + width], "big")
+    # IDs retain the marker bit; sizes remove it and reserve all ones for
+    # unknown length, which cannot establish a bounded header for a no-op.
     if not identifier:
         value &= (1 << (7 * width)) - 1
         if value == (1 << (7 * width)) - 1:
@@ -58,6 +61,7 @@ def _ebml_doctype(header: bytes) -> bytes | None:
                 return None
             if identifier == 0x4282:
                 if document_type is not None:
+                    # Multiple declarations are ambiguous, so do not skip remuxing.
                     return None
                 document_type = header[offset:offset + size]
             offset += size

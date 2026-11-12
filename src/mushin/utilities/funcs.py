@@ -7,6 +7,7 @@ def validate_filename(value: str) -> str:
     Destination-specific rules and containment checks belong to the artifact
     service when it materializes content.
     """
+    # Reject both path syntaxes even on POSIX: logical names can cross hosts.
     if not value.strip() or value in {".", ".."} or any(char in value for char in ("/", "\\", ":", "\x00")):
         raise ValueError("Artifact filename must be a single name, without path components")
     return value

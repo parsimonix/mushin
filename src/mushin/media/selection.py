@@ -21,7 +21,9 @@ class StreamSelection:
     def ffmpeg_arguments(self) -> list[str]:
         arguments = []
         for index in self.indices:
+            # Explicit absolute maps bypass FFmpeg's automatic stream selection.
             arguments.extend(["-map", f"0:{index}"])
+        # Omitting this option would allow FFmpeg to copy chapters automatically.
         arguments.extend(["-map_chapters", "0" if self.copy_chapters else "-1"])
         return arguments
 
@@ -51,6 +53,7 @@ class StreamSelectionPolicy(BaseModel):
         indices = []
         categories = {"video": "video", "audio": "audio", "subtitle": "subtitles", "attachment": "attachments", "data": "data"}
         for stream in info.streams:
+            # Cover art is a video stream, but must not consume the "first video" slot.
             category = "pictures" if stream.is_attached_picture else categories.get(stream.codec_type)
             if category is None:
                 if self.unknown == "error":
@@ -61,5 +64,6 @@ class StreamSelectionPolicy(BaseModel):
                 indices.append(stream.index)
             seen.add(category)
         if not indices:
+            # With no -map arguments FFmpeg would silently use automatic selection.
             raise MediaToolError("empty_stream_selection", "Stream policy selected no streams")
         return StreamSelection(tuple(indices), self.chapters == "copy")

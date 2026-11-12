@@ -24,12 +24,14 @@ class ProcessRunnerTests(unittest.IsolatedAsyncioTestCase):
         return await self.runner.run(sys.executable, ["-c", script], timeout=5, **kwargs)
 
     async def ready(self, path):
+        # The child's marker confirms initialization, not just successful spawn.
         async with asyncio.timeout(5):
             while not path.exists():
                 await asyncio.sleep(0.01)
         return int(path.read_text())
 
     def assert_reaped(self, pid):
+        # Signal zero checks existence without signalling; even zombies still exist.
         with self.assertRaises(ProcessLookupError):
             os.kill(pid, 0)
 
@@ -41,6 +43,7 @@ class ProcessRunnerTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_arguments_stdin_and_concurrent_pipe_drain(self):
+        # Exceed normal pipe buffers to expose a wait-for-exit-before-read deadlock.
         result = await self.python(
             "import os, sys; assert sys.stdin.read() == ''; "
             "os.write(1, b'x' * 200000); os.write(2, b'y' * 200000 + b'END')"
@@ -76,7 +79,8 @@ class ProcessRunnerTests(unittest.IsolatedAsyncioTestCase):
     @unittest.skipUnless(os.name == "posix", "POSIX signal escalation")
     async def test_timeout_kills_uncooperative_child(self):
         marker = self.root / "pid"
-        # Start the deadline after the child has installed its signal handler.
+        # The readiness marker is written only after SIGTERM is ignored, so
+        # this exercises kill escalation rather than an early graceful exit.
         task = asyncio.create_task(self.runner.run(
             sys.executable, ["-c", self.sleeper(marker, ignore_term=True)], timeout=1))
         pid = await self.ready(marker)
@@ -130,6 +134,7 @@ class ProcessRunnerTests(unittest.IsolatedAsyncioTestCase):
         task = asyncio.create_task(self.python(self.sleeper(marker, ignore_term=True)))
         pid = await self.ready(marker)
         task.cancel()
+        # Let the first cancellation enter the grace period before cancelling again.
         await asyncio.sleep(0.02)
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
@@ -143,6 +148,7 @@ class ProcessRunnerTests(unittest.IsolatedAsyncioTestCase):
         children = []
 
         async def delayed(*args, **kwargs):
+            # Hold launch across cancellation to test ownership of a late child.
             entered.set()
             await release.wait()
             child = await launch(*args, **kwargs)

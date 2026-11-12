@@ -64,6 +64,8 @@ class WorkflowValidator:
             except KeyError:
                 issues.append(ValidationIssue(code="unknown_node_type", message=f"Unknown node type {node.type!r} version {node.version}", node_id=node.id))
                 continue
+            # Duplicate IDs could refer to different node types; avoid deriving
+            # misleading port diagnostics from either definition.
             if counts[node.id] == 1:
                 specs[node.id] = spec
             issues.extend(self._validate_config(node, spec))
@@ -127,6 +129,8 @@ class WorkflowValidator:
             source = outputs.get(edge.source_node, {}).get(edge.source_port)
             target = inputs.get(edge.target_node, {}).get(edge.target_port)
             if target is not None:
+                # Count even mistyped edges: they still occupy the input and
+                # should not also produce a spurious "missing input" issue.
                 key = (edge.target_node, edge.target_port)
                 incoming[key] += 1
                 if incoming[key] > 1:
@@ -161,6 +165,8 @@ class WorkflowValidator:
         return [ValidationIssue(code=code, message=message, node_id=node_id, port_name=port_name, edge_index=edge_index)]
 
     def _validate_port_types(self, edge: Edge, index: int, source: Port | None, target: Port | None) -> list[ValidationIssue]:
+        # Graph compatibility uses stable type IDs, not implicit Python coercion;
+        # conversions belong in explicit adapter nodes.
         if source is None or target is None or source.type == target.type:
             return []
         return [
@@ -215,6 +221,7 @@ class WorkflowValidator:
                 elif node_id in ports and port_name not in ports[node_id]:
                     issues.append(ValidationIssue(code="missing_port", message=f"Unknown {direction} port {port_name!r}", **location))
                 elif direction == "input" and port_name in ports.get(node_id, {}):
+                    # A public binding supplies the same slot as an incoming edge.
                     key = (node_id, port_name)
                     if incoming[key]:
                         issues.append(
