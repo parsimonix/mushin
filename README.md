@@ -3,6 +3,42 @@ Arbitrary workflow composer / validator.
 
 See [the design document](DESIGN.md) for the proposed backend architecture and implementation milestones.
 
+## Run the video sample
+
+With FFmpeg and ffprobe on PATH, run:
+
+```bash
+uv run python -m mushin.remux_playground
+```
+
+This generates a two-second MP4 with a moving test pattern and an audio tone,
+then runs **import → remux to MKV → remux MKV again → save** through the
+workflow runner. It prints node events, probes the saved MKV, checks that
+codecs and duration are preserved, and verifies that the source is unchanged.
+The second remux returns the same artifact, leaving only the imported MP4
+and remuxed MKV in managed storage.
+
+The default workspace, including the saved sample, is removed on exit. Keep a
+playable `sample.mkv` with:
+
+```bash
+uv run python -m mushin.remux_playground --output ./remux-output
+```
+
+The output directory is created if needed. Existing `sample.mkv` files are
+never overwritten; choose another directory for another run. Source and
+artifact workspaces are temporary even when the saved output is retained.
+The sample requires the `lavfi` input device, `testsrc2`/`sine` filters,
+MPEG-4/AAC encoders, and MP4/Matroska muxers. Missing tools or capabilities
+produce an error and a nonzero exit status. FFmpeg installation and integration
+test commands are documented below.
+
+The original filename-only demo remains available and does not require FFmpeg:
+
+```bash
+uv run python -m mushin.playground
+```
+
 ## Media tool discovery
 
 Install FFmpeg and ffprobe separately; they are not Python dependencies.

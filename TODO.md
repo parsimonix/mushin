@@ -17,7 +17,7 @@ Complete and verify each step before moving to the next:
 4. [x] Add typed ffprobe metadata parsing and define explicit stream-selection policies.
 5. [x] Implement typed `RemuxVideo` configuration, explicit stream copying, output verification, and artifact publication.
 6. [x] Add generated video fixtures and integration coverage for success, incompatible containers, malformed input, missing tools, timeout, and cancellation.
-7. [ ] Add the import → remux → save playground and installation/testing documentation.
+7. [x] Add the import → remux → save playground and installation/testing documentation.
 8. [ ] Add execution progress events and FFmpeg progress parsing, including unknown durations and throttling.
 9. [ ] Implement and test one explicit transcoding profile using the same services.
 
@@ -66,8 +66,8 @@ Complete and verify each step before moving to the next:
 - [x] Test cancellation and timeout cleanup, including child-process termination.
 - [x] Verify the source remains unchanged and unsuccessful runs publish no output artifact.
 - [x] Cover multiple audio tracks, subtitles, opaque attachments, cover art, chapters, and idempotency for MKV/MP4/WebM.
-- [ ] Add a runnable valid-video playground demonstrating import → remux → save.
-- [ ] Document FFmpeg installation requirements and how to run the integration checks.
+- [x] Add a runnable valid-video playground demonstrating import → remux → save.
+- [x] Document FFmpeg installation requirements and how to run the integration checks.
 
 ## 5. Progress reporting
 
