@@ -26,9 +26,12 @@ class PortValueError(ValueError):
 
 
 class MediaToolError(RuntimeError):
-    """An actionable discovery failure with a stable machine-readable code."""
+    """An actionable media tool failure with a stable machine-readable code."""
 
-    def __init__(self, code: str, message: str, *, executable: str | None = None) -> None:
+    def __init__(self, code: str, message: str, *, executable: str | None = None,
+                 returncode: int | None = None, stderr: str = "") -> None:
         super().__init__(message)
         self.code = code
         self.executable = executable
+        self.returncode = returncode
+        self.stderr = stderr

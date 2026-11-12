@@ -38,6 +38,38 @@ Run discovery tests without installing FFmpeg:
 uv run python -m unittest discover -s tests -p test_media_tools.py
 ```
 
+## Async media processes
+
+Use `ProcessRunner` from async workflow code with the tools discovered at startup:
+
+```python
+from mushin.media import ProcessRunner
+
+runner = ProcessRunner()
+
+async def check_version(tools, context):
+    result = await runner.ffmpeg(
+        tools, ["-version"], timeout=10, cancellation=context.cancellation,
+    )
+    return result.stdout.decode("utf-8")
+```
+
+The runner passes argument lists directly and disables stdin. FFmpeg also gets
+`-nostdin`. Stdout defaults to a 4 MiB limit; exceeding it stops the child with
+`MediaToolError.code == "output_limit"`. Stderr retains its final 16 KiB, decoded
+with replacement for invalid UTF-8. Both limits are configurable.
+
+Timeouts raise `MediaToolError` with code `process_timeout`; nonzero exits use
+`command_failed`. Errors include `returncode` and the bounded `stderr` tail.
+Task cancellation or a set cancellation event raises `asyncio.CancelledError`.
+Before returning or raising, the runner terminates the child, waits up to its
+configurable grace period (one second by default), then kills and reaps it if
+needed. Cleanup can extend beyond the processing timeout.
+
+Await the runner **inside** artifact input/output contexts so process cleanup
+finishes before temporary files are removed. The runner owns a direct child;
+it does not manage descendant processes inheriting its output pipes.
+
 ## Workflow storage
 
 Handwritten workflows can use named node keys without IDs. See

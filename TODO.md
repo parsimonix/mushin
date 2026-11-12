@@ -13,7 +13,7 @@ Complete and verify each step before moving to the next:
 
 1. [x] Add isolated input-path leases and staged output publication to the local artifact store; test isolation, publication, and cleanup.
 2. [x] Add configurable FFmpeg/ffprobe discovery, version reporting, and capability checks.
-3. [ ] Build the asynchronous process runner with bounded diagnostics, timeout handling, and cancellation that terminates and reaps the child before releasing artifact leases.
+3. [x] Build the asynchronous process runner with bounded diagnostics, timeout handling, and cancellation that terminates and reaps the child before releasing artifact leases.
 4. [ ] Add typed ffprobe metadata parsing and define explicit stream-selection policies.
 5. [ ] Implement typed `RemuxVideo` configuration, explicit stream copying, output verification, and artifact publication.
 6. [ ] Add generated video fixtures and integration coverage for success, incompatible containers, malformed input, missing tools, timeout, and cancellation.
@@ -35,15 +35,16 @@ Complete and verify each step before moving to the next:
 
 - [x] Locate configurable FFmpeg and ffprobe executables and report missing binaries clearly.
 - [x] Record executable versions and check required container/codec capabilities.
-- [ ] Run tools with `asyncio.create_subprocess_exec()` and argument lists.
-- [ ] Disable interactive stdin for FFmpeg.
-- [ ] Drain subprocess output concurrently and retain a bounded stderr tail for diagnostics.
-- [ ] Return structured errors for launch failures, nonzero exits, and invalid probe output.
+- [x] Run tools with `asyncio.create_subprocess_exec()` and argument lists.
+- [x] Disable interactive stdin for FFmpeg.
+- [x] Drain subprocess output concurrently and retain a bounded stderr tail for diagnostics.
+- [x] Return structured errors for launch failures and nonzero exits.
+- [ ] Return structured errors for invalid probe output.
 - [ ] Use ffprobe to obtain actual duration, container, and stream metadata.
 - [ ] Define stream selection for video, multiple audio tracks, subtitles, attachments, and chapters.
-- [ ] Handle task cancellation and the execution context's cooperative cancellation signal.
-- [ ] On cancellation or timeout, terminate, allow a bounded grace period, then kill if necessary and reap the process.
-- [ ] Finish process cleanup before removing temporary files.
+- [x] Handle task cancellation and the execution context's cooperative cancellation signal.
+- [x] On cancellation or timeout, terminate, allow a bounded grace period, then kill if necessary and reap the process.
+- [x] Finish process cleanup before removing temporary files.
 
 ## 3. RemuxVideo node
 
