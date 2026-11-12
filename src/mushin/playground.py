@@ -6,10 +6,21 @@ import asyncio
 import logging
 from uuid import uuid4
 
+from mushin.models.events import ExecutionEvent, NodeStateEvent
 from mushin.models.node import Node, PortDefault, Workflow, WorkflowInput, WorkflowOutput
 from mushin.models.registry import NodeRegistry
 from mushin.models.run import WorkflowRunner, WorkflowRunStatus
 from mushin.nodes import Add
+
+
+def print_event(event: ExecutionEvent) -> None:
+    """Display progress as the runner delivers each notification."""
+    subject = f"run={event.run_id}"
+    if isinstance(event, NodeStateEvent):
+        subject += f" node={event.node_id}"
+    print(f"[{event.timestamp.isoformat()}] {subject} status={event.status}", flush=True)
+    if event.error is not None:
+        print(f"  {event.error.code}: {event.error.message}", flush=True)
 
 
 async def main() -> None:
@@ -37,7 +48,7 @@ async def main() -> None:
     workflow = Workflow.model_validate_json(workflow.model_dump_json())
     runner = WorkflowRunner(registry)
     for inputs in ({"left": 2}, {"left": 2, "right": 8}):
-        run = await runner.run(workflow, inputs=inputs)
+        run = await runner.run(workflow, inputs=inputs, on_event=print_event)
         if run.status != WorkflowRunStatus.SUCCEEDED:
             print(run.model_dump_json(indent=2))
             raise SystemExit(1)
@@ -46,5 +57,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     asyncio.run(main())

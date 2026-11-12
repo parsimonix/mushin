@@ -58,6 +58,19 @@ class WorkflowRunnerTests(unittest.IsolatedAsyncioTestCase):
     def edge(self, source, target, port="a"):
         return Edge(source_node=source.id, source_port="out", target_node=target.id, target_port=port)
 
+    def assert_event_states(self, events, run_states, node_states):
+        self.assertEqual([event.status.value for event in events if event.type == "run_state_changed"], run_states)
+        self.assertEqual(events[0].type, "run_state_changed")
+        self.assertEqual(events[-1].type, "run_state_changed")
+        self.assertEqual({event.node_id for event in events if event.type == "node_state_changed"}, set(node_states))
+        for node_id, states in node_states.items():
+            self.assertEqual(
+                [event.status.value for event in events if event.type == "node_state_changed" and event.node_id == node_id],
+                states,
+            )
+        self.assertEqual(len({event.run_id for event in events}), 1)
+        self.assertTrue(all(event.timestamp.utcoffset() == timedelta(0) for event in events))
+
     async def test_dependency_order_fan_out_join_and_timestamps(self):
         source = self.register("constant", self.constant)
         target = self.register("add", self.add, ("a", "b"))
@@ -155,12 +168,15 @@ class WorkflowRunnerTests(unittest.IsolatedAsyncioTestCase):
             ({"left": None, "right": 3}, "invalid_workflow_input"),
         ):
             with self.subTest(code=code, supplied=supplied):
-                run = await self.runner.run(workflow, inputs=supplied)
+                events = []
+                run = await self.runner.run(workflow, inputs=supplied, on_event=events.append)
                 self.assertEqual(run.status, WorkflowRunStatus.FAILED)
                 self.assertEqual(run.error.code, code)
                 self.assertEqual(run.outputs, {})
                 self.assertEqual(self.calls, [])
                 self.assertTrue(all(record.started_at is None for record in run.nodes.values()))
+                self.assert_event_states(events, ["pending", "failed"], {workflow.nodes[0].id: ["pending", "cancelled"]})
+                self.assertEqual(events[-1].error, run.error)
 
     async def test_optional_workflow_input_and_output_can_be_omitted(self):
         async def omitted(inputs, config, context):
@@ -199,13 +215,90 @@ class WorkflowRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.calls, [second.id, first.id])
         self.assertEqual((await self.runner.run(self.workflow([]))).status, WorkflowRunStatus.SUCCEEDED)
 
+    async def test_event_callback_receives_ordered_state_changes(self):
+        node = self.register("constant", self.constant)
+        events = []
+        run = await self.runner.run(self.workflow([node]), on_event=events.append)
+        self.assertEqual(
+            [(event.type, event.status.value) for event in events],
+            [
+                ("run_state_changed", "pending"),
+                ("node_state_changed", "pending"),
+                ("run_state_changed", "running"),
+                ("node_state_changed", "running"),
+                ("node_state_changed", "succeeded"),
+                ("run_state_changed", "succeeded"),
+            ],
+        )
+        self.assertTrue(all(event.run_id == run.id for event in events))
+        self.assertTrue(all(event.node_id == node.id for event in events if event.type == "node_state_changed"))
+
+    async def test_callback_exception_does_not_fail_workflow(self):
+        def broken_callback(event):
+            raise RuntimeError("observer failed")
+
+        node = self.register("constant", self.constant)
+        with self.assertLogs("mushin.models.run", level="ERROR") as logs:
+            run = await self.runner.run(self.workflow([node]), on_event=broken_callback)
+        self.assertEqual(run.status, WorkflowRunStatus.SUCCEEDED)
+        self.assertEqual(len(logs.records), 6)
+
+    async def test_callback_exception_preserves_failure_cleanup(self):
+        events = []
+
+        def broken_callback(event):
+            events.append(event)
+            raise RuntimeError("observer failed")
+
+        async def fail(*args):
+            raise ValueError("executor failed")
+
+        root = self.register("fail", fail)
+        child = self.register("child", self.constant, ("a",))
+        with self.assertLogs("mushin.models.run", level="ERROR"):
+            run = await self.runner.run(
+                self.workflow([root, child], [self.edge(root, child)]), on_event=broken_callback,
+            )
+        self.assertEqual(run.status, WorkflowRunStatus.FAILED)
+        self.assertIn("executor failed", run.error.message)
+        self.assert_event_states(events, ["pending", "running", "failed"], {
+            root.id: ["pending", "running", "failed"], child.id: ["pending", "blocked"],
+        })
+
+    async def test_concurrent_runs_keep_callbacks_separate(self):
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def wait(*args):
+            entered.set()
+            await release.wait()
+            return {"out": 1}
+
+        slow = self.register("slow", wait)
+        fast = self.register("fast", self.constant)
+        slow_events, fast_events = [], []
+        task = asyncio.create_task(self.runner.run(self.workflow([slow]), on_event=slow_events.append))
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=1)
+            fast_run = await self.runner.run(self.workflow([fast]), on_event=fast_events.append)
+        finally:
+            release.set()
+            slow_run = await task
+        self.assertNotEqual(slow_run.id, fast_run.id)
+        for run, events, node in ((slow_run, slow_events, slow), (fast_run, fast_events, fast)):
+            self.assertTrue(all(event.run_id == run.id for event in events))
+            self.assert_event_states(events, ["pending", "running", "succeeded"], {node.id: ["pending", "running", "succeeded"]})
+
     async def test_invalid_graph_never_executes(self):
         target = self.register("add", self.add, ("a", "b"))
-        run = await self.runner.run(self.workflow([target]))
+        events = []
+        run = await self.runner.run(self.workflow([target]), on_event=events.append)
         self.assertEqual(run.status, WorkflowRunStatus.FAILED)
         self.assertEqual(run.error.code, "invalid_workflow")
         self.assertEqual(len(run.validation_issues), 2)
         self.assertEqual(self.calls, [])
+        self.assert_event_states(events, ["pending", "failed"], {target.id: ["pending", "cancelled"]})
+        self.assertEqual(events[-1].error, run.error)
 
     async def test_failure_blocks_transitive_dependents(self):
         async def fail(*args):
@@ -215,7 +308,11 @@ class WorkflowRunnerTests(unittest.IsolatedAsyncioTestCase):
         child = self.register("child", self.constant, ("a",))
         grandchild = self.register("grandchild", self.constant, ("a",))
         independent = self.register("independent", self.constant)
-        run = await self.runner.run(self.workflow([root, child, grandchild, independent], [self.edge(root, child), self.edge(child, grandchild)]))
+        events = []
+        run = await self.runner.run(
+            self.workflow([root, child, grandchild, independent], [self.edge(root, child), self.edge(child, grandchild)]),
+            on_event=events.append,
+        )
         self.assertEqual(run.status, WorkflowRunStatus.FAILED)
         self.assertEqual(run.nodes[root.id].status, NodeRunStatus.FAILED)
         self.assertEqual(run.nodes[child.id].status, NodeRunStatus.BLOCKED)
@@ -223,6 +320,19 @@ class WorkflowRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run.nodes[independent.id].status, NodeRunStatus.CANCELLED)
         self.assertIn("broken", run.error.message)
         self.assertEqual(self.calls, [])
+        self.assert_event_states(events, ["pending", "running", "failed"], {
+            root.id: ["pending", "running", "failed"],
+            child.id: ["pending", "blocked"],
+            grandchild.id: ["pending", "blocked"],
+            independent.id: ["pending", "cancelled"],
+        })
+        failure = next(event for event in events if event.type == "node_state_changed" and event.status == NodeRunStatus.FAILED)
+        self.assertEqual(failure.error, run.nodes[root.id].error)
+        self.assertEqual(events[-1].error, run.error)
+        # Observers may edit nested error objects without changing the run record.
+        failure.error.message = "changed by observer"
+        self.assertIn("broken", run.error.message)
+        self.assertIn("broken", events[-1].error.message)
 
     async def test_output_contract_errors(self):
         for output in ({}, {"out": 2, "extra": 3}, None, [2]):
@@ -333,9 +443,11 @@ class WorkflowRunnerTests(unittest.IsolatedAsyncioTestCase):
         event = asyncio.Event()
         event.set()
         first = self.register("first", self.constant)
-        run = await self.runner.run(self.workflow([first]), cancellation=event)
+        events = []
+        run = await self.runner.run(self.workflow([first]), cancellation=event, on_event=events.append)
         self.assertEqual(run.status, WorkflowRunStatus.CANCELLED)
         self.assertIsNone(run.nodes[first.id].started_at)
+        self.assert_event_states(events, ["pending", "running", "cancelled"], {first.id: ["pending", "cancelled"]})
 
         async def stop(*args):
             event.set()
@@ -343,10 +455,14 @@ class WorkflowRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         event.clear()
         stopping = self.register("stop", stop)
-        run = await self.runner.run(self.workflow([stopping, first]), cancellation=event)
+        events.clear()
+        run = await self.runner.run(self.workflow([stopping, first]), cancellation=event, on_event=events.append)
         self.assertEqual(run.nodes[stopping.id].status, NodeRunStatus.SUCCEEDED)
         self.assertEqual(run.nodes[first.id].status, NodeRunStatus.CANCELLED)
         self.assertEqual(self.calls, [])
+        self.assert_event_states(events, ["pending", "running", "cancelled"], {
+            stopping.id: ["pending", "running", "succeeded"], first.id: ["pending", "cancelled"],
+        })
 
     async def test_cooperative_cancellation_inside_executor(self):
         async def stop(inputs, config, context):
@@ -354,10 +470,12 @@ class WorkflowRunnerTests(unittest.IsolatedAsyncioTestCase):
             context.raise_if_cancelled()
 
         node = self.register("stop", stop)
-        run = await self.runner.run(self.workflow([node]))
+        events = []
+        run = await self.runner.run(self.workflow([node]), on_event=events.append)
         self.assertEqual(run.status, WorkflowRunStatus.CANCELLED)
         self.assertEqual(run.nodes[node.id].status, NodeRunStatus.CANCELLED)
         self.assertIsNotNone(run.nodes[node.id].finished_at)
+        self.assert_event_states(events, ["pending", "running", "cancelled"], {node.id: ["pending", "running", "cancelled"]})
 
     async def test_external_task_cancellation_propagates(self):
         started = asyncio.Event()
@@ -371,12 +489,14 @@ class WorkflowRunnerTests(unittest.IsolatedAsyncioTestCase):
                 cleaned_up.set()
 
         node = self.register("wait", wait)
-        task = asyncio.create_task(self.runner.run(self.workflow([node])))
+        events = []
+        task = asyncio.create_task(self.runner.run(self.workflow([node]), on_event=events.append))
         await asyncio.wait_for(started.wait(), timeout=1)
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await task
         self.assertTrue(cleaned_up.is_set())
+        self.assert_event_states(events, ["pending", "running", "cancelled"], {node.id: ["pending", "running", "cancelled"]})
 
     async def test_snapshot_and_config_defaults(self):
         async def edit_original(inputs, config, context):
