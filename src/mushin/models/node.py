@@ -4,6 +4,7 @@ from asyncio import Event
 from builtins import type as PythonType
 from collections.abc import Mapping
 from logging import Logger
+from pathlib import Path
 from typing import Literal, Protocol, Self
 from uuid import UUID, uuid4
 
@@ -80,6 +81,22 @@ class Workflow(BaseModel):
     edges: list[Edge] = Field(default_factory=list)
     inputs: list[WorkflowInput] = Field(default_factory=list)
     outputs: list[WorkflowOutput] = Field(default_factory=list)
+
+    def export(self, path: str | Path | None = None, *, form: Literal["raw", "author"] = "raw", include_ids: bool = False) -> str:
+        """Return YAML, optionally writing it atomically to a chosen file.
+
+        Raw form retains all UUIDs. Author form uses readable node keys and
+        omits UUIDs unless include_ids=True; importing it then creates fresh
+        identities. Keys derive from node names or types, with unique suffixes.
+        Author export rejects duplicate IDs and references to absent nodes.
+
+        Writing is synchronous, creates parent directories, and replaces an
+        existing file. Use asyncio.to_thread for file export from async code.
+        """
+        # Import lazily: persistence and document models also depend on Workflow.
+        from mushin.persistence.workflows import export_workflow_yaml
+
+        return export_workflow_yaml(self, path, form=form, include_ids=include_ids)
 
 
 class NodeExecutor(Protocol):

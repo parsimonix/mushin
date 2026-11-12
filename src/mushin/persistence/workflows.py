@@ -4,7 +4,7 @@ import asyncio
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID
 
 import yaml
@@ -88,6 +88,47 @@ async def load_workflow_file(path: str | Path) -> Workflow:
     return await asyncio.to_thread(read)
 
 
+def export_workflow_yaml(workflow: Workflow, path: str | Path | None = None, *,
+                         form: Literal["raw", "author"] = "raw", include_ids: bool = False) -> str:
+    """Serialize a snapshot as raw or author YAML, optionally publishing a file."""
+    if form == "raw":
+        data = workflow.model_dump(mode="json")
+    elif form == "author":
+        data = WorkflowDocument.from_workflow(workflow).model_dump(mode="json")
+        if not include_ids:
+            data.pop("id")
+            for node in data["nodes"].values():
+                node.pop("id")
+        for node in data["nodes"].values():
+            # Omitted names acquire the generated author key on import.
+            if node["name"] is None:
+                node.pop("name")
+    else:
+        raise ValueError(f"Unknown workflow export form {form!r}; expected 'raw' or 'author'")
+    document = yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+    if path is not None:
+        _write_yaml(Path(path).absolute(), document)
+    return document
+
+
+def _write_yaml(path: Path, document: str) -> None:
+    """Atomically replace a complete document, cleaning staging on failure."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staging_path = None
+    try:
+        # Same-filesystem staging lets replace publish the complete file atomically.
+        with NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, prefix=".pending-", delete=False) as staging:
+            staging_path = Path(staging.name)
+            staging.write(document)
+            staging.flush()
+            # Flush file data before exposing the new document name to readers.
+            os.fsync(staging.fileno())
+        os.replace(staging_path, path)
+    finally:
+        if staging_path is not None:
+            staging_path.unlink(missing_ok=True)
+
+
 class YamlWorkflowRepository:
     """Store UTF-8 YAML documents as <workflow UUID hex>.yaml in one directory.
 
@@ -112,26 +153,7 @@ class YamlWorkflowRepository:
 
     def _save(self, path: Path, data: dict) -> None:
         document = yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
-        self._root.mkdir(parents=True, exist_ok=True)
-        staging_path = None
-        try:
-            # Same-filesystem staging lets replace publish the complete file atomically.
-            with NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=self._root,
-                prefix=".pending-",
-                delete=False,
-            ) as staging:
-                staging_path = Path(staging.name)
-                staging.write(document)
-                staging.flush()
-                # Flush file data before exposing the new document name to readers.
-                os.fsync(staging.fileno())
-            os.replace(staging_path, path)
-        finally:
-            if staging_path is not None:
-                staging_path.unlink(missing_ok=True)
+        _write_yaml(path, document)
 
     async def load(self, workflow_id: UUID) -> Workflow:
         return await asyncio.to_thread(self._load, workflow_id)

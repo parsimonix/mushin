@@ -1,4 +1,4 @@
-"""Run with: python -m mushin.plex_playground [--input EPISODE] [--output DIRECTORY]."""
+"""Run with: python -m mushin.plex_playground --input EPISODE [--output DIRECTORY]."""
 
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ from mushin.models.registry import NodeRegistry
 from mushin.models.run import WorkflowRunner, WorkflowRunStatus
 from mushin.nodes import GuessVideo, ImportFile, RemuxVideo, RenameFile, SaveFile, TemplatedString, to_variables_registration
 from mushin.playground import print_event
-from mushin.remux_playground import generate_sample
 from mushin.types.video_metadata import VideoMetadata
 
 
@@ -80,22 +79,17 @@ def build_workflow(variables_type: str) -> Workflow:
 
 
 def _digest(path: Path) -> bytes:
-    # Streaming verification also works if the generated fixture grows later.
+    # Hash in chunks rather than loading an entire episode into memory.
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").digest()
 
 
-async def run_sample(tools: MediaTools, workspace: Path, destination: Path, *, source_file: Path | None = None) -> Path:
-    """Import a supplied episode or generate a fixture, then verify the saved media."""
-    if source_file is None:
-        source = workspace / "Example.Show.2024.S01E02.The.Sample.Episode.mp4"
-        print("Generating a two-second video with an episode-style filename...", flush=True)
-        await generate_sample(tools, source)
-    else:
-        source = source_file.absolute()
-        if not source.is_file():
-            raise FileNotFoundError(f"Source file does not exist or is not a regular file: {source}")
-        print(f"Importing: {source}", flush=True)
+async def run_sample(tools: MediaTools, workspace: Path, destination: Path, *, source_file: Path) -> Path:
+    """Import a supplied episode, run the graph, and verify the saved media."""
+    source = source_file.absolute()
+    if not source.is_file():
+        raise FileNotFoundError(f"Source file does not exist or is not a regular file: {source}")
+    print(f"Importing: {source}", flush=True)
     destination.mkdir(parents=True, exist_ok=True)
     original_digest = _digest(source)
     store = LocalArtifactStore(workspace / "artifacts")
@@ -122,16 +116,15 @@ async def run_sample(tools: MediaTools, workspace: Path, destination: Path, *, s
     renamed = cast(ArtifactRef, run.outputs["renamed"])
     metadata = cast(VideoMetadata, run.outputs["guessed"])
     saved = Path(cast(str, run.outputs["saved_path"]))
-    expected_filename = "Example Show (2024) - s01e02 - The Sample Episode.mkv"
-    if (source_file is None and saved.name != expected_filename) or run.outputs["filename"] != saved.name:
+    if run.outputs["filename"] != saved.name:
         raise RuntimeError(f"Unexpected Plex filename: {saved.name}")
     # Existing MKV inputs may pass through remuxing without creating new content.
-    if (source_file is None and imported.content_id == remuxed.content_id) or remuxed.content_id != renamed.content_id:
+    if remuxed.content_id != renamed.content_id:
         raise RuntimeError("Unexpected remux or rename artifact identity")
     async with store.input_path(imported) as path:
         if _digest(path) != original_digest or _digest(source) != original_digest:
             raise RuntimeError("Source or imported content changed")
-    # Compare saved bytes with the renamed artifact, not the source MP4:
+    # Compare saved bytes with the renamed artifact, not the source video:
     # remuxing changes container bytes, while renaming changes only the reference.
     async with store.input_path(renamed) as path:
         if _digest(path) != _digest(saved):
@@ -154,7 +147,7 @@ async def run_sample(tools: MediaTools, workspace: Path, destination: Path, *, s
     return saved
 
 
-async def main(tools: MediaTools, *, input: Path | None = None, output: Path | None = None) -> None:
+async def main(tools: MediaTools, *, input: Path, output: Path | None = None) -> None:
     print(tools.ffmpeg.version)
     print(tools.ffprobe.version)
     with TemporaryDirectory(prefix="mushin-plex-playground-") as directory:
@@ -168,9 +161,9 @@ async def main(tools: MediaTools, *, input: Path | None = None, output: Path | N
 
 
 def cli() -> None:
-    parser = argparse.ArgumentParser(description="Import or generate a video, remux to MKV, and name it using episode metadata.")
+    parser = argparse.ArgumentParser(description="Import a video, remux to MKV, and name it using episode metadata.")
     parser.add_argument(
-        "--input", "--source", type=Path, metavar="FILE", help="Import this episode file; omit to generate a sample. The original is unchanged."
+        "--input", "--source", type=Path, required=True, metavar="FILE", help="Import this episode file. The original is unchanged."
     )
     parser.add_argument("--output", type=Path, metavar="DIRECTORY", help="Keep the named MKV here; existing files are never replaced.")
     arguments = parser.parse_args()

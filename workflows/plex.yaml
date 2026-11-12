@@ -1,0 +1,110 @@
+name: Process TV Episode for Plex
+schema_version: 1
+nodes:
+  import_video:
+    name: Import Video
+    type: file.import
+    version: 1
+    config: {}
+  remux_to_mkv:
+    name: Remux to MKV
+    type: video.remux
+    version: 1
+    config:
+      container: mkv
+  guess_metadata:
+    name: Guess Metadata
+    type: video.guess
+    version: 1
+    config:
+      type: episode
+  tovariables:
+    name: ToVariables
+    type: variables.from.video_metadata
+    version: 1
+    config:
+      fields:
+      - title
+      - year
+      - season
+      - episode
+      - episode_title
+      - container
+      omit_none: true
+  generate_plex_filename:
+    name: Generate Plex Filename
+    type: string.template
+    version: 1
+    config:
+      template: '{title}{year_suffix} - s{season:02d}e{episode:02d}{episode_suffix}.{container}'
+      optional_sections:
+        year_suffix: ' ({year})'
+        episode_suffix: ' - {episode_title}'
+  rename_video_file:
+    name: Rename Video File
+    type: file.rename
+    version: 1
+    config: {}
+  save_video_file:
+    name: Save Video File
+    type: file.save
+    version: 1
+    config: {}
+edges:
+- source_node: import_video
+  source_port: file
+  target_node: remux_to_mkv
+  target_port: file
+- source_node: remux_to_mkv
+  source_port: file
+  target_node: guess_metadata
+  target_port: file
+- source_node: guess_metadata
+  source_port: metadata
+  target_node: tovariables
+  target_port: value
+- source_node: tovariables
+  source_port: variables
+  target_node: generate_plex_filename
+  target_port: variables
+- source_node: generate_plex_filename
+  source_port: text
+  target_node: rename_video_file
+  target_port: filename
+- source_node: remux_to_mkv
+  source_port: file
+  target_node: rename_video_file
+  target_port: file
+- source_node: rename_video_file
+  source_port: file
+  target_node: save_video_file
+  target_port: file
+inputs:
+- name: source
+  target_node: import_video
+  target_port: source
+- name: destination
+  target_node: save_video_file
+  target_port: directory
+outputs:
+- name: imported
+  source_node: import_video
+  source_port: file
+- name: remuxed
+  source_node: remux_to_mkv
+  source_port: file
+- name: guessed
+  source_node: guess_metadata
+  source_port: metadata
+- name: variables
+  source_node: tovariables
+  source_port: variables
+- name: filename
+  source_node: generate_plex_filename
+  source_port: text
+- name: renamed
+  source_node: rename_video_file
+  source_port: file
+- name: saved_path
+  source_node: save_video_file
+  source_port: path

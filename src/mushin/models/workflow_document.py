@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Self
 from uuid import UUID, uuid4
 
@@ -38,6 +39,40 @@ class WorkflowDocument(BaseModel):
     edges: list[NamedEdge] = Field(default_factory=list)
     inputs: list[NamedInput] = Field(default_factory=list)
     outputs: list[NamedOutput] = Field(default_factory=list)
+
+    @classmethod
+    def from_workflow(cls, workflow: Workflow) -> Self:
+        """Translate UUID references into deterministic, unique author keys."""
+        keys: dict[UUID, str] = {}
+        nodes: dict[str, Node] = {}
+        for node in workflow.nodes:
+            if node.id in keys:
+                raise ValueError(f"Cannot export author form with duplicate node ID {node.id}")
+            base = re.sub(r"\W+", "_", (node.name or node.type).strip()).strip("_").lower() or "node"
+            key = base
+            suffix = 2
+            # Labels need not be unique, but author references must be.
+            while key in nodes:
+                key = f"{base}_{suffix}"
+                suffix += 1
+            keys[node.id] = key
+            nodes[key] = node.model_copy(deep=True)
+
+        def resolve(node_id: UUID) -> str:
+            try:
+                return keys[node_id]
+            except KeyError:
+                raise ValueError(f"Cannot export author form: reference to missing node {node_id}") from None
+
+        return cls(
+            id=workflow.id, name=workflow.name, schema_version=workflow.schema_version, nodes=nodes,
+            edges=[NamedEdge(source_node=resolve(edge.source_node), source_port=edge.source_port,
+                             target_node=resolve(edge.target_node), target_port=edge.target_port) for edge in workflow.edges],
+            inputs=[NamedInput(name=binding.name, target_node=resolve(binding.target_node), target_port=binding.target_port)
+                    for binding in workflow.inputs],
+            outputs=[NamedOutput(name=binding.name, source_node=resolve(binding.source_node), source_port=binding.source_port)
+                     for binding in workflow.outputs],
+        )
 
     @model_validator(mode="after")
     def validate_references(self) -> Self:

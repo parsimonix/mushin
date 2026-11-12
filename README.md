@@ -42,24 +42,16 @@ uv run python -m mushin.playground
 For the combined episode-naming workflow, run:
 
 ```bash
-uv run python -m mushin.plex_playground --output ./plex-output
-```
-
-This generates a valid episode sample and runs **import → remux to MKV →
-guess episode metadata → template variables → filename → rename → save**.
-Using the playground's template, it saves
-`Example Show (2024) - s01e02 - The Sample Episode.mkv` and verifies source
-preservation, the saved bytes, container, codecs, and duration. Omit `--output`
-for a disposable run. Existing files are never replaced. The generated sample
-includes every metadata field used by the template. Year and episode title
-are optional; their parentheses or separator are omitted when unavailable.
-Other required placeholders still report a missing-variable error.
-
-Import your own episode instead of generating a sample:
-
-```bash
 uv run python -m mushin.plex_playground --input "/path/to/episode.mkv" --output ./plex-output
 ```
+
+This imports your episode and runs **import → remux to MKV →
+guess episode metadata → template variables → filename → rename → save**.
+It verifies source preservation, the saved bytes, container, codecs, and
+duration. Omit `--output` for a disposable run. Existing files are never
+replaced. An input file is required. Year and episode title
+are optional; their parentheses or separator are omitted when unavailable.
+Other required placeholders still report a missing-variable error.
 
 `--source` is an alias for `--input`. The original file is unchanged. The
 current template requires title, season, and episode number to be inferred
@@ -332,6 +324,37 @@ Node keys resolve to generated UUIDs and serve as default display names.
 Each import generates fresh IDs unless explicitly supplied. Save the imported
 workflow in the repository to retain its identity. Unknown named references
 are rejected during import; other graph validation remains separate.
+
+Export any `Workflow` directly to a chosen YAML file:
+
+```python
+workflow.export("workflows/plex.author.yaml", form="author")
+workflow.export("workflows/plex.raw.yaml", form="raw")
+
+# Omit the path to get YAML text without writing a file.
+author_yaml = workflow.export(form="author")
+
+# Retain workflow/node UUIDs while still using named references.
+workflow.export("workflows/plex.with-ids.yaml", form="author", include_ids=True)
+```
+
+Raw form is the full UUID-based snapshot and is the default. Author form uses
+unique keys derived from node names (falling back to node types), adding
+suffixes when names collide. It retains node configuration and display names.
+Unnamed nodes acquire their generated author key as a display name on import.
+Author form omits UUIDs by default, so importing it creates fresh identities;
+`include_ids=True` retains them. Original author keys are not stored in a
+`Workflow`, so export generates new keys rather than recovering them.
+
+Both forms load with `load_workflow_file()`. Export does not require a node
+registry or a runnable graph. Author export rejects duplicate node IDs and
+references to missing nodes because named references would be ambiguous or
+unresolvable; raw form can preserve those incomplete drafts.
+
+File export creates parent directories and atomically replaces existing files;
+it does not preserve YAML comments or hand formatting. Export is synchronous;
+inside async code use `await asyncio.to_thread(workflow.export, path,
+form="author")` to keep file operations off the event loop.
 
 Use the local YAML repository from async Python code:
 
