@@ -95,8 +95,15 @@ class RemuxVideo:
         if len(expected) != len(after.streams):
             fail(f"Expected {len(expected)} output streams; got {len(after.streams)}")
         for original, actual in zip(expected, after.streams, strict=True):
-            if original.codec_name is None or original.codec_name != actual.codec_name or original.codec_type != actual.codec_type:
+            # Opaque Matroska attachments (for example text/plain) legitimately
+            # have no codec_name. Their type and descriptive tags still apply.
+            missing_codec = original.codec_name is None and original.codec_type != "attachment"
+            if missing_codec or original.codec_name != actual.codec_name or original.codec_type != actual.codec_type:
                 fail(f"Output stream {actual.index} does not preserve input stream {original.index}'s type and codec")
+            if original.codec_type == "attachment":
+                for key in ("filename", "mimetype"):
+                    if original.tags.get(key) != actual.tags.get(key):
+                        fail(f"Output attachment {actual.index} changed {key}")
             if original.is_attached_picture != actual.is_attached_picture:
                 fail(f"Output stream {actual.index} changed cover-art disposition")
             for field in ("width", "height", "channels"):

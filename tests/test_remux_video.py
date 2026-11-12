@@ -204,6 +204,21 @@ class RemuxVideoTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(MediaToolError, "chapters"):
             RemuxVideo._verify(info, MediaInfo.model_validate(metadata()), StreamSelectionPolicy().select(info), "matroska")
 
+    def test_opaque_attachments_allow_unknown_codec_but_require_metadata(self):
+        raw = metadata()
+        raw["streams"].append({"index": 3, "codec_type": "attachment",
+                               "tags": {"filename": "notes.txt", "mimetype": "text/plain"}})
+        before = MediaInfo.model_validate(raw)
+        selection = StreamSelectionPolicy().select(before)
+        RemuxVideo._verify(before, before, selection, "matroska")
+        raw["streams"][-1]["tags"]["filename"] = "different.txt"
+        with self.assertRaisesRegex(MediaToolError, "changed filename"):
+            RemuxVideo._verify(before, MediaInfo.model_validate(raw), selection, "matroska")
+        raw = metadata(codec=None)
+        before = MediaInfo.model_validate(raw)
+        with self.assertRaisesRegex(MediaToolError, "type and codec"):
+            RemuxVideo._verify(before, before, StreamSelectionPolicy().select(before), "matroska")
+
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg and ffprobe required")
 class RealRemuxTests(unittest.IsolatedAsyncioTestCase):

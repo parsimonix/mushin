@@ -21,7 +21,7 @@ class MediaToolsTests(unittest.TestCase):
         else:
             output = {
                 "-muxers": "Formats:\n .E = Muxing supported\n  E  matroska Matroska\n  Ed video4linux2,v4l2 device\n",
-                "-demuxers": "Formats:\n D  mov,mp4,m4a QuickTime\n",
+                "-demuxers": "Formats:\n D  mov,mp4,m4a QuickTime\n D d lavfi Virtual input device\n",
                 "-encoders": "Encoders:\n V..... = Video\n V....D libx264 H.264\n A..... aac AAC\n",
                 "-decoders": "Decoders:\n VFS..D h264 H.264\n A....D aac AAC\n",
             }[option]
@@ -32,7 +32,7 @@ class MediaToolsTests(unittest.TestCase):
         self.assertEqual(tools.ffmpeg.path, Path("/tools/ffmpeg"))
         self.assertEqual(tools.ffprobe.version, "ffprobe version test-build Copyright")
         self.assertEqual(tools.muxers, {"matroska", "video4linux2", "v4l2"})
-        self.assertEqual(tools.demuxers, {"mov", "mp4", "m4a"})
+        self.assertEqual(tools.demuxers, {"mov", "mp4", "m4a", "lavfi"})
         self.assertEqual(tools.encoders, {"libx264", "aac"})
         self.assertEqual(tools.decoders, {"h264", "aac"})
         tools.require(muxers=["matroska"], demuxers=["mp4"])

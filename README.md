@@ -188,6 +188,34 @@ The real-tool test generates a tiny video and checks successful remuxing and
 incompatible-container cleanup. It skips when the required tools or fixture
 capabilities are absent; the other tests use simulated tool responses.
 
+Run the broader real-media integration suite with:
+
+```bash
+uv run python -m unittest discover -s tests -p test_remux_integration.py -v
+```
+
+It generates one-second fixtures in temporary directories; no media downloads
+or binary fixtures are needed. It covers MP4/WebM/MKV conversion and
+idempotency, two audio tracks, SubRip subtitles, a text attachment (including
+extracted-byte comparison), PNG cover art, chapters, and explicit drops.
+Failure tests check malformed media, unsupported configuration, missing
+executables, and incompatible containers. Timeout and both cancellation
+methods interrupt real FFmpeg and verify child reaping before staging cleanup,
+unchanged source bytes, and no published output.
+
+Install FFmpeg and ffprobe on PATH (for example, `sudo apt install ffmpeg` on
+Ubuntu). Tests skip when tools or required fixture capabilities are absent;
+review verbose output for skips. The fixtures use the `lavfi` input device,
+`color`/`sine` filters, MPEG-4/AAC, VP8 (`libvpx`)/Opus (`libopus`), SubRip,
+and PNG encoding. Child liveness checks require POSIX; other integration
+checks also run on systems with compatible FFmpeg builds.
+
+Run all tests, including integration tests when available, with:
+
+```bash
+uv run python -m unittest discover -s tests
+```
+
 ## Workflow storage
 
 Handwritten workflows can use named node keys without IDs. See

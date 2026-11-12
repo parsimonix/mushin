@@ -16,7 +16,7 @@ Complete and verify each step before moving to the next:
 3. [x] Build the asynchronous process runner with bounded diagnostics, timeout handling, and cancellation that terminates and reaps the child before releasing artifact leases.
 4. [x] Add typed ffprobe metadata parsing and define explicit stream-selection policies.
 5. [x] Implement typed `RemuxVideo` configuration, explicit stream copying, output verification, and artifact publication.
-6. [ ] Add generated video fixtures and integration coverage for success, incompatible containers, malformed input, missing tools, timeout, and cancellation.
+6. [x] Add generated video fixtures and integration coverage for success, incompatible containers, malformed input, missing tools, timeout, and cancellation.
 7. [ ] Add the import → remux → save playground and installation/testing documentation.
 8. [ ] Add execution progress events and FFmpeg progress parsing, including unknown durations and throttling.
 9. [ ] Implement and test one explicit transcoding profile using the same services.
@@ -60,11 +60,12 @@ Complete and verify each step before moving to the next:
 
 ## 4. Integration tests and playground
 
-- [ ] Generate tiny valid video fixtures with known streams; keep the current dummy-file example for filename inference only.
-- [ ] Test successful remuxing and inspect output with ffprobe.
-- [ ] Test missing binaries, unsupported formats, malformed input, and process failures.
-- [ ] Test cancellation and timeout cleanup, including child-process termination.
-- [ ] Verify the source remains unchanged and unsuccessful runs publish no output artifact.
+- [x] Generate tiny valid video fixtures with known streams; keep the current dummy-file example for filename inference only.
+- [x] Test successful remuxing and inspect output with ffprobe.
+- [x] Test missing binaries, unsupported formats, malformed input, and process failures.
+- [x] Test cancellation and timeout cleanup, including child-process termination.
+- [x] Verify the source remains unchanged and unsuccessful runs publish no output artifact.
+- [x] Cover multiple audio tracks, subtitles, opaque attachments, cover art, chapters, and idempotency for MKV/MP4/WebM.
 - [ ] Add a runnable valid-video playground demonstrating import → remux → save.
 - [ ] Document FFmpeg installation requirements and how to run the integration checks.
 
