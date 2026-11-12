@@ -1,0 +1,69 @@
+name: Generate a Plex movie filename
+nodes:
+  import:
+    name: ImportFile
+    type: file.import
+  guess:
+    name: GuessVideo
+    type: video.guess
+    config:
+      type: movie
+  variables:
+    name: ToVariables
+    type: variables.from.video_metadata
+    config:
+      fields:
+      - title
+      - year
+      - container
+      omit_none: true
+  template:
+    name: TemplatedString
+    type: string.template
+    config:
+      template: '{title} ({year}).{container}'
+  rename:
+    name: RenameFile
+    type: file.rename
+  save:
+    name: SaveFile
+    type: file.save
+edges:
+- source_node: import
+  source_port: file
+  target_node: guess
+  target_port: file
+- source_node: guess
+  source_port: metadata
+  target_node: variables
+  target_port: value
+- source_node: variables
+  source_port: variables
+  target_node: template
+  target_port: variables
+- source_node: template
+  source_port: text
+  target_node: rename
+  target_port: filename
+- source_node: import
+  source_port: file
+  target_node: rename
+  target_port: file
+- source_node: rename
+  source_port: file
+  target_node: save
+  target_port: file
+inputs:
+- name: source
+  target_node: import
+  target_port: source
+- name: destination
+  target_node: save
+  target_port: directory
+outputs:
+- name: filename
+  source_node: template
+  source_port: text
+- name: saved_path
+  source_node: save
+  source_port: path
