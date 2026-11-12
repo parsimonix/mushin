@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Mapping
 from typing import Literal, cast
 
@@ -54,4 +55,6 @@ class GuessVideo:
         matches = guessit(filename, options)
         # GuessIt includes date and babelfish objects; keep scalar/list structure
         # while converting those leaf objects to their text representations.
-        return VideoMetadata.model_validate_json(json.dumps(dict(matches), default=str))
+        metadata = VideoMetadata.model_validate_json(json.dumps(dict(matches), default=str))
+        logging.getLogger(__name__).debug("GuessIt parsed %r as %r", filename, metadata)
+        return metadata

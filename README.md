@@ -39,6 +39,58 @@ The original filename-only demo remains available and does not require FFmpeg:
 uv run python -m mushin.playground
 ```
 
+For the combined episode-naming workflow, run:
+
+```bash
+uv run python -m mushin.plex_playground --output ./plex-output
+```
+
+This generates a valid episode sample and runs **import → remux to MKV →
+guess episode metadata → template variables → filename → rename → save**.
+Using the playground's template, it saves
+`Example Show (2024) - s01e02 - The Sample Episode.mkv` and verifies source
+preservation, the saved bytes, container, codecs, and duration. Omit `--output`
+for a disposable run. Existing files are never replaced. The generated sample
+includes every metadata field used by the template. Year and episode title
+are optional; their parentheses or separator are omitted when unavailable.
+Other required placeholders still report a missing-variable error.
+
+Import your own episode instead of generating a sample:
+
+```bash
+uv run python -m mushin.plex_playground --input "/path/to/episode.mkv" --output ./plex-output
+```
+
+`--source` is an alias for `--input`. The original file is unchanged. The
+current template requires title, season, and episode number to be inferred
+from the filename. Without a year or episode title, it produces a name such
+as `Example Show - s01e02.mkv`.
+
+The template uses `s{season:02d}e{episode:02d}` to zero-pad integer values to
+at least two digits. Values above 99 retain all digits. Plain placeholders
+remain supported; other format specifiers and field traversal are rejected.
+
+In the `TemplatedString` node's config, use `defaults` for missing variables
+and `optional_sections` for fragments that should disappear with their values:
+
+```python
+config={
+    "template": "{title}{year_suffix} - s{season:02d}e{episode:02d}{episode_suffix}.{container}",
+    "defaults": {"title": "Unknown Show"},
+    "optional_sections": {
+        "year_suffix": " ({year})",
+        "episode_suffix": " - {episode_title}",
+    },
+}
+```
+
+For example, `defaults={"year": 2024}` fills an absent year and includes
+` (2024)`. Supplied values take priority over defaults. Each optional section
+is included only when all of its variables exist and are nonempty; zero and
+`False` count as present. Section names are reserved and cannot reference
+other sections. The `ToVariables` adapter's `omit_none=True` removes unknown
+metadata values before rendering, allowing defaults or omission to apply.
+
 ## Media tool discovery
 
 Install FFmpeg and ffprobe separately; they are not Python dependencies.
