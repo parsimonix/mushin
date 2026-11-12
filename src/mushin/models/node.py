@@ -13,6 +13,7 @@ class Node(BaseModel):
     """A configured instance of a registered node type."""
 
     id: UUID = Field(default_factory=uuid4)
+    name: str | None = Field(default=None, min_length=1)
     type: str = Field(min_length=1)
     version: int = Field(default=1, ge=1)
     config: dict[str, JsonValue] = Field(default_factory=dict)

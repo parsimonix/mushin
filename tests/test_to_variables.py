@@ -25,13 +25,13 @@ class OptionalTitle(BaseModel):
 
 
 class ToVariablesTests(unittest.IsolatedAsyncioTestCase):
-    async def convert(self, model, value):
+    async def convert(self, model, value, config=None):
         types = create_default_type_registry()
         types.register("example", TypeAdapter(model))
         registration = to_variables_registration(model, input_type="example")
         registry = NodeRegistry()
         registry.register(registration.spec, registration.executor)
-        node = Node(id=uuid4(), type=registration.spec.type)
+        node = Node(id=uuid4(), type=registration.spec.type, config=config or {})
         workflow = Workflow(
             id=uuid4(), name="Convert model", nodes=[node],
             inputs=[WorkflowInput(name="value", target_node=node.id, target_port="value")],
@@ -64,6 +64,34 @@ class ToVariablesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(registration.spec.outputs[0].type, "template_variables")
         custom = to_variables_registration(Movie, input_type="movie", node_type="movie.variables", version=2)
         self.assertEqual((custom.spec.type, custom.spec.version), ("movie.variables", 2))
+
+    async def test_field_selection_and_unknown_names(self):
+        value = {"title": "Example", "year": 2026, "rating": 0.0, "watched": False}
+        run = await self.convert(Movie, value, {"fields": ["title", "watched", "rating"]})
+        self.assertEqual(run.outputs["variables"], {"title": "Example", "watched": False, "rating": 0.0})
+        run = await self.convert(Movie, value, {"fields": ["typo"]})
+        self.assertIn("Unknown variable fields", run.error.message)
+        run = await self.convert(Movie, value, {"fields": []})
+        self.assertEqual(run.outputs["variables"], {})
+
+    async def test_null_omission_and_list_policy(self):
+        class Details(BaseModel):
+            title: str | None = None
+            episodes: list[int] = [2, 3]
+
+        run = await self.convert(Details, {}, {"omit_none": True, "list_separator": "-"})
+        self.assertEqual(run.outputs["variables"], {"episodes": "2-3"})
+        run = await self.convert(Details, {}, {"omit_none": True})
+        self.assertIn("unsupported fields", run.error.message)
+        run = await self.convert(Details, {"episodes": []}, {"omit_none": True, "list_separator": "-"})
+        self.assertEqual(run.outputs["variables"], {"episodes": ""})
+
+    async def test_join_does_not_stringify_nested_objects(self):
+        class Details(BaseModel):
+            items: list[dict[str, str]]
+
+        run = await self.convert(Details, {"items": [{"key": "value"}]}, {"list_separator": ","})
+        self.assertIn("unsupported fields", run.error.message)
 
 
 if __name__ == "__main__":

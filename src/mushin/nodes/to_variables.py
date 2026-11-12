@@ -11,12 +11,17 @@ from mushin.models.registry import NodeRegistration
 class ToVariablesConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    fields: list[str] | None = None
+    omit_none: bool = False
+    list_separator: str | None = None
+
 
 class ToVariables:
     """Expose a model's top-level scalar fields as template variables.
 
     Python-mode dumping preserves field names and avoids silently converting
-    nested objects or non-scalar values into strings. Null is unsupported.
+    nested objects into strings. Configuration can select fields, omit nulls,
+    and join scalar lists. Defaults retain strict scalar-only behavior.
     """
 
     def __init__(self, model: type[BaseModel]) -> None:
@@ -32,6 +37,21 @@ class ToVariables:
         variables = value.model_dump(mode="python", by_alias=False)
         if not isinstance(variables, dict):
             raise ValueError("ToVariables requires a model that dumps to a field mapping")
+        options = ToVariablesConfig.model_validate(dict(config))
+        if options.fields is not None:
+            missing = [name for name in options.fields if name not in variables]
+            if missing:
+                raise ValueError(f"Unknown variable fields: {missing}")
+            variables = {name: variables[name] for name in options.fields}
+        if options.omit_none:
+            variables = {name: item for name, item in variables.items() if item is not None}
+        if options.list_separator is not None:
+            variables = {
+                name: options.list_separator.join(str(element) for element in item)
+                if isinstance(item, list) and all(isinstance(element, (str, int, float, bool)) for element in item)
+                else item
+                for name, item in variables.items()
+            }
         unsupported = [name for name, item in variables.items() if not isinstance(item, (str, int, float, bool))]
         if unsupported:
             raise ValueError(f"Variables must be non-null scalar values; unsupported fields: {unsupported}")

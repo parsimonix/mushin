@@ -7,6 +7,7 @@ from pydantic import TypeAdapter
 
 from mushin.models.artifact import ArtifactRef
 from mushin.models.file_metadata import FileMetadata
+from mushin.models.video_metadata import VideoMetadata
 from mushin.models.node import NodeExecutor, NodeSpec
 
 
@@ -90,5 +91,6 @@ def create_default_type_registry() -> TypeRegistry:
     registry.register("boolean", TypeAdapter(bool))
     registry.register("artifact", TypeAdapter(ArtifactRef))
     registry.register("file_metadata", TypeAdapter(FileMetadata))
+    registry.register("video_metadata", TypeAdapter(VideoMetadata))
     registry.register("template_variables", TypeAdapter(dict[str, str | int | float | bool]))
     return registry
