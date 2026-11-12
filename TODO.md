@@ -15,7 +15,7 @@ Complete and verify each step before moving to the next:
 2. [x] Add configurable FFmpeg/ffprobe discovery, version reporting, and capability checks.
 3. [x] Build the asynchronous process runner with bounded diagnostics, timeout handling, and cancellation that terminates and reaps the child before releasing artifact leases.
 4. [x] Add typed ffprobe metadata parsing and define explicit stream-selection policies.
-5. [ ] Implement typed `RemuxVideo` configuration, explicit stream copying, output verification, and artifact publication.
+5. [x] Implement typed `RemuxVideo` configuration, explicit stream copying, output verification, and artifact publication.
 6. [ ] Add generated video fixtures and integration coverage for success, incompatible containers, malformed input, missing tools, timeout, and cancellation.
 7. [ ] Add the import → remux → save playground and installation/testing documentation.
 8. [ ] Add execution progress events and FFmpeg progress parsing, including unknown durations and throttling.
@@ -48,13 +48,15 @@ Complete and verify each step before moving to the next:
 
 ## 3. RemuxVideo node
 
-- [ ] Define typed configuration for the destination container and stream-selection policy.
-- [ ] Accept an artifact input and return a new artifact output.
-- [ ] Build explicit stream mappings and use stream copying (`-c copy`).
-- [ ] Reject incompatible streams/container combinations with useful diagnostics.
-- [ ] Avoid silently dropping streams or falling back to transcoding.
-- [ ] Assign a logical filename matching the new container.
-- [ ] Verify expected output streams before publishing the artifact.
+- [x] Define typed configuration for the destination container and stream-selection policy.
+- [x] Accept an artifact input and return a new artifact output.
+- [x] Build explicit stream mappings and use stream copying (`-c copy`).
+- [x] Reject incompatible streams/container combinations with useful diagnostics.
+- [x] Avoid silently dropping streams or falling back to transcoding.
+- [x] Assign a logical filename matching the new container.
+- [x] Verify expected output streams before publishing the artifact.
+- [x] Accept `mkv` as an alias for the Matroska output container.
+- [x] Return the original artifact when container identity is confirmed and the stream/chapter selection is unchanged.
 
 ## 4. Integration tests and playground
 

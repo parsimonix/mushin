@@ -17,7 +17,9 @@ def _unknown(value: object) -> object:
     if value == "N/A":
         return None
     if isinstance(value, bool):
-        raise TypeError("Time values cannot be booleans")
+        # Pydantic wraps ValueError as a validation failure; TypeError escapes
+        # validation and would bypass the service's structured probe error.
+        raise ValueError("Time values cannot be booleans")
     return value
 
 

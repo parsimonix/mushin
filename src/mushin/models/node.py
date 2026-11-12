@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from asyncio import Event
 from builtins import type as PythonType
 from collections.abc import Mapping
 from logging import Logger
@@ -105,6 +106,9 @@ class ExecutionContext(Protocol):
 
     @property
     def logger(self) -> Logger: ...
+
+    @property
+    def cancellation(self) -> Event: ...
 
     def raise_if_cancelled(self) -> None:
         """Raise asyncio.CancelledError if cancellation has been requested."""

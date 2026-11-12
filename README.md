@@ -120,6 +120,74 @@ Probe and selection tests use simulated ffprobe responses:
 uv run python -m unittest discover -s tests -p test_media_probe.py
 ```
 
+## RemuxVideo
+
+Register the node with your artifact store and discovered tools:
+
+```python
+from mushin.nodes import RemuxVideo
+
+registry.register(RemuxVideo.spec, RemuxVideo(store, tools))
+```
+
+The `video.remux` node accepts an artifact on `file` and returns an artifact
+on `file`. Its configuration requires `container` (`mkv`, `matroska`, `mp4`, or
+`webm`), with optional `streams` (the stream policy above) and `timeout`
+(positive seconds per subprocess, default 300). For example:
+
+```yaml
+type: video.remux
+config:
+  container: mkv
+  streams:
+    audio: all
+    chapters: copy
+  timeout: 300
+```
+
+The node probes the input, maps selected streams explicitly, and runs FFmpeg
+with `-c copy` and an explicit output format. It never falls back to encoding.
+Container compatibility is decided by the installed FFmpeg build; a rejected
+combination raises `MediaToolError` with code `remux_failed` and retains the
+bounded FFmpeg stderr diagnostic. Other process error codes are preserved.
+
+`mkv` is an alias for the Matroska muxer and produces `.mkv` files. When the
+input is already in the requested container and the stream policy retains
+all existing streams and chapters, the node returns the **original artifact
+reference**, including its filename, without running FFmpeg or publishing
+another artifact. It still probes content; filename extensions do not decide
+the container. A policy that actually removes streams or chapters remuxes as
+usual. Reapplying the same policy to the resulting artifact returns it unchanged.
+
+Because ffprobe reports shared container families, the no-op check distinguishes
+Matroska from WebM using the EBML header's document type. MP4 is identified by
+recognized MP4 major brands rather than the shared MOV/MP4 aliases. Unknown
+headers or brands conservatively take the normal remux path.
+
+Before publication, the node probes the output and verifies the container
+family, stream count/order, codec/type, known dimensions/channel counts,
+cover-art disposition, and chapter count/timing (50 ms tolerance). A mismatch
+raises `remux_verification_failed` and discards the output. This is structural
+verification, not a packet-by-packet comparison. ffprobe groups Matroska/WebM
+and MOV/MP4 as container families; the FFmpeg output format is explicit.
+Outputs that add auxiliary streams or change attachment representation are
+rejected by the strict stream check.
+
+Newly remuxed output uses the original filename stem with `.mkv`, `.mp4`, or
+`.webm`. Source content stays unchanged. Failures and cancellation discard
+temporary output after process cleanup. Workflow execution currently wraps
+node exceptions in its generic `node_execution_failed` run error.
+
+Run the node tests with:
+
+```bash
+uv run python -m unittest discover -s tests -p test_remux_video.py
+```
+
+The real-tool test generates a tiny video and checks successful remuxing and
+incompatible-container cleanup. It skips when the required tools or fixture
+capabilities are absent; the other tests use simulated tool responses.
+
 ## Workflow storage
 
 Handwritten workflows can use named node keys without IDs. See

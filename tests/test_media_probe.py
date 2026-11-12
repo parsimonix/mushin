@@ -122,7 +122,9 @@ class MediaProbeTests(unittest.IsolatedAsyncioTestCase):
         ], timeout=2, cancellation=event)
 
     async def test_malformed_output_becomes_structured_error(self):
-        for payload in (b"not json", b"{}", b"[]", b"\xff"):
+        invalid_duration = document()
+        invalid_duration["format"]["duration"] = True
+        for payload in (b"not json", b"{}", b"[]", b"\xff", json.dumps(invalid_duration).encode()):
             self.runner.ffprobe.return_value = ProcessResult(payload, "diagnostic", 0)
             with self.assertRaises(MediaToolError) as caught:
                 await self.probe.probe_path("file")

@@ -2,7 +2,7 @@ from .adapters import ToVariables, to_variables_registration
 from .files import ImportFile, InspectFile, RenameFile, SaveFile
 from .math import Add, ConstantNumber
 from .string import ConstantString, TemplatedString
-from .video import GuessVideo
+from .video import GuessVideo, RemuxVideo
 
 __all__ = [
     "Add",
@@ -12,6 +12,7 @@ __all__ = [
     "ImportFile",
     "InspectFile",
     "RenameFile",
+    "RemuxVideo",
     "SaveFile",
     "TemplatedString",
     "ToVariables",
