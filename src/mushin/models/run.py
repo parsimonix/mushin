@@ -13,22 +13,14 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, ValidationError
 
+from mushin.enums import NodeRunStatus, WorkflowRunStatus
+from mushin.exceptions import PortValueError, RunError
 from mushin.models.events import ExecutionEvent, NodeStateEvent, RunStateEvent
-from mushin.models.run_state import NodeRunStatus, RunError, WorkflowRunStatus
 from mushin.models.node import Node, NodeSpec, Port, Workflow
 from mushin.models.registry import NodeRegistration, NodeRegistry, TypeRegistry, create_default_type_registry
 from mushin.models.validation import ValidationIssue, WorkflowValidator
 
 logger = getLogger(__name__)
-
-
-class PortValueError(ValueError):
-    """A runtime value failure associated with one node port."""
-
-    def __init__(self, node_id: UUID, port: Port, message: str) -> None:
-        self.node_id = node_id
-        self.port_name = port.name
-        super().__init__(f"Node {node_id} {port.direction} port {port.name!r} (type {port.type!r}): {message}")
 
 
 class NodeRun(BaseModel):
@@ -84,7 +76,11 @@ class WorkflowRunner:
         self._validator = WorkflowValidator(registry, self._type_registry)
 
     async def run(
-        self, workflow: Workflow, *, inputs: Mapping[str, object] | None = None, cancellation: Event | None = None,
+        self,
+        workflow: Workflow,
+        *,
+        inputs: Mapping[str, object] | None = None,
+        cancellation: Event | None = None,
         on_event: Callable[[ExecutionEvent], None] | None = None,
     ) -> WorkflowRun:
         """Snapshot and validate the graph, then execute its nodes.
@@ -189,16 +185,20 @@ class WorkflowRunner:
             if binding.name not in run.inputs:
                 if port.required and port.default is None:
                     return RunError(
-                        code="missing_workflow_input", message=f"Missing required workflow input {binding.name!r}",
-                        node_id=binding.target_node, port_name=port.name,
+                        code="missing_workflow_input",
+                        message=f"Missing required workflow input {binding.name!r}",
+                        node_id=binding.target_node,
+                        port_name=port.name,
                     )
                 continue
             try:
                 values = self._validate_values(binding.target_node, [port], {port.name: run.inputs[binding.name]})
             except PortValueError as exc:
                 return RunError(
-                    code="invalid_workflow_input", message=f"Workflow input {binding.name!r}: {exc}",
-                    node_id=exc.node_id, port_name=exc.port_name,
+                    code="invalid_workflow_input",
+                    message=f"Workflow input {binding.name!r}: {exc}",
+                    node_id=exc.node_id,
+                    port_name=exc.port_name,
                 )
             validated[binding.name] = values[port.name]
         run.inputs = validated
@@ -215,19 +215,31 @@ class WorkflowRunner:
 
     def _emit_run(self, run: WorkflowRun, on_event: Callable[[ExecutionEvent], None] | None) -> None:
         if on_event is not None:
-            self._emit(RunStateEvent(
-                run_id=run.id, status=run.status,
-                error=run.error.model_copy(deep=True) if run.error is not None else None,
-            ), on_event)
+            self._emit(
+                RunStateEvent(
+                    run_id=run.id,
+                    status=run.status,
+                    error=run.error.model_copy(deep=True) if run.error is not None else None,
+                ),
+                on_event,
+            )
 
     def _emit_node(
-        self, run: WorkflowRun, record: NodeRun, on_event: Callable[[ExecutionEvent], None] | None,
+        self,
+        run: WorkflowRun,
+        record: NodeRun,
+        on_event: Callable[[ExecutionEvent], None] | None,
     ) -> None:
         if on_event is not None:
-            self._emit(NodeStateEvent(
-                run_id=run.id, node_id=record.node_id, status=record.status,
-                error=record.error.model_copy(deep=True) if record.error is not None else None,
-            ), on_event)
+            self._emit(
+                NodeStateEvent(
+                    run_id=run.id,
+                    node_id=record.node_id,
+                    status=record.status,
+                    error=record.error.model_copy(deep=True) if record.error is not None else None,
+                ),
+                on_event,
+            )
 
     def _log_completion(self, run: WorkflowRun) -> None:
         elapsed = (run.finished_at - run.started_at).total_seconds() if run.finished_at and run.started_at else 0.0
@@ -263,7 +275,11 @@ class WorkflowRunner:
         return ordered
 
     async def _execute_node(
-        self, run: WorkflowRun, node: Node, registration: NodeRegistration, cancellation: Event,
+        self,
+        run: WorkflowRun,
+        node: Node,
+        registration: NodeRegistration,
+        cancellation: Event,
         on_event: Callable[[ExecutionEvent], None] | None,
     ) -> None:
         record = run.nodes[node.id]
@@ -302,9 +318,7 @@ class WorkflowRunner:
 
     def _collect_inputs(self, run: WorkflowRun, node: Node, spec: NodeSpec) -> dict[str, object]:
         inputs = {
-            binding.target_port: run.inputs[binding.name]
-            for binding in run.workflow.inputs
-            if binding.target_node == node.id and binding.name in run.inputs
+            binding.target_port: run.inputs[binding.name] for binding in run.workflow.inputs if binding.target_node == node.id and binding.name in run.inputs
         }
         for edge in run.workflow.edges:
             if edge.target_node == node.id:
@@ -345,7 +359,10 @@ class WorkflowRunner:
         return validated
 
     def _finish_pending(
-        self, run: WorkflowRun, *, failed_node: UUID | None = None,
+        self,
+        run: WorkflowRun,
+        *,
+        failed_node: UUID | None = None,
         on_event: Callable[[ExecutionEvent], None] | None = None,
     ) -> None:
         """Block all descendants of a failure and cancel other pending nodes."""

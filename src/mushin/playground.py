@@ -9,13 +9,13 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from mushin.artifacts import LocalArtifactStore
-from mushin.models.video_metadata import VideoMetadata
+from mushin.enums import NodeRunStatus
 from mushin.models.events import ExecutionEvent, NodeStateEvent
 from mushin.models.node import Edge, Node, Workflow, WorkflowInput, WorkflowOutput
 from mushin.models.registry import NodeRegistry
 from mushin.models.run import WorkflowRunner, WorkflowRunStatus
-from mushin.models.run_state import NodeRunStatus
 from mushin.nodes import GuessVideo, ImportFile, RenameFile, SaveFile, TemplatedString, to_variables_registration
+from mushin.types.video_metadata import VideoMetadata
 
 
 def print_event(event: ExecutionEvent, *, workflow: Workflow) -> None:
@@ -37,8 +37,8 @@ def print_event(event: ExecutionEvent, *, workflow: Workflow) -> None:
         for edge in workflow.edges:
             if edge.target_node == event.node_id:
                 print(
-                    f"  input route: {label(nodes[edge.source_node])}.{edge.source_port}"
-                    f" -> {label(node)}.{edge.target_port}", flush=True,
+                    f"  input route: {label(nodes[edge.source_node])}.{edge.source_port} -> {label(node)}.{edge.target_port}",
+                    flush=True,
                 )
     if event.error is not None:
         print(f"  {event.error.code}: {event.error.message}", flush=True)
@@ -49,11 +49,13 @@ def build_workflow(variables_type: str) -> Workflow:
     source = Node(name="ImportFile", type=ImportFile.spec.type)
     guess = Node(name="GuessVideo", type=GuessVideo.spec.type, config={"type": "movie"})
     variables = Node(
-        name="ToVariables", type=variables_type,
+        name="ToVariables",
+        type=variables_type,
         config={"fields": ["title", "year", "container"], "omit_none": True},
     )
     template = Node(
-        name="TemplatedString", type=TemplatedString.spec.type,
+        name="TemplatedString",
+        type=TemplatedString.spec.type,
         config={"template": "{title} ({year}).{container}"},
     )
     rename = Node(name="RenameFile", type=RenameFile.spec.type)
@@ -106,7 +108,8 @@ async def main() -> None:
         workflow = Workflow.model_validate_json(workflow.model_dump_json())
         print("Import -> GuessVideo -> variables -> template -> rename -> save", flush=True)
         run = await WorkflowRunner(registry).run(
-            workflow, inputs={"source": str(source), "destination": str(destination)},
+            workflow,
+            inputs={"source": str(source), "destination": str(destination)},
             on_event=partial(print_event, workflow=workflow),
         )
         if run.status != WorkflowRunStatus.SUCCEEDED:

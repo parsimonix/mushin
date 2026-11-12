@@ -7,8 +7,8 @@ from mushin.models.artifact import ArtifactRef
 from mushin.models.node import Edge, Node, Workflow, WorkflowInput, WorkflowOutput
 from mushin.models.registry import NodeRegistry
 from mushin.models.run import WorkflowRunner, WorkflowRunStatus
-from mushin.models.video_metadata import VideoMetadata
 from mushin.nodes import GuessVideo, TemplatedString, to_variables_registration
+from mushin.types.video_metadata import VideoMetadata
 
 
 class GuessVideoTests(unittest.IsolatedAsyncioTestCase):
@@ -20,7 +20,8 @@ class GuessVideoTests(unittest.IsolatedAsyncioTestCase):
     async def guess(self, filename, config=None):
         node = Node(type=GuessVideo.spec.type, config=config or {})
         workflow = Workflow(
-            name="Guess video metadata", nodes=[node],
+            name="Guess video metadata",
+            nodes=[node],
             inputs=[WorkflowInput(name="file", target_node=node.id, target_port="file")],
             outputs=[WorkflowOutput(name="metadata", source_node=node.id, source_port="metadata")],
         )
@@ -77,7 +78,8 @@ class GuessVideoTests(unittest.IsolatedAsyncioTestCase):
                 variables = Node(type=adapter.spec.type, config={"fields": fields, "omit_none": True, "list_separator": "-"})
                 render = Node(type=TemplatedString.spec.type, config={"template": template})
                 workflow = Workflow(
-                    name="Name video", nodes=[guess, variables, render],
+                    name="Name video",
+                    nodes=[guess, variables, render],
                     edges=[
                         Edge(source_node=guess.id, source_port="metadata", target_node=variables.id, target_port="value"),
                         Edge(source_node=variables.id, source_port="variables", target_node=render.id, target_port="variables"),

@@ -20,7 +20,10 @@ class Node(BaseModel):
 
 
 class PortDefault(BaseModel):
-    """An explicit default, including null; absence of this wrapper means no default."""
+    """An explicit default, including null; absence of this wrapper means no default.
+
+    Presence of this wrapper with a value of None is distinct from absence, and means the port has a default of null.
+    """
 
     value: JsonValue
 

@@ -6,11 +6,11 @@ from uuid import uuid4
 
 from mushin.artifacts import LocalArtifactStore
 from mushin.models.artifact import ArtifactRef
-from mushin.models.file_metadata import FileMetadata
 from mushin.models.node import Edge, Node, Workflow, WorkflowInput, WorkflowOutput
 from mushin.models.registry import NodeRegistry
 from mushin.models.run import NodeRunStatus, WorkflowRunner, WorkflowRunStatus
-from mushin.nodes import ImportFile, InspectFile, TemplatedString, RenameFile, SaveFile, to_variables_registration
+from mushin.nodes import ImportFile, InspectFile, RenameFile, SaveFile, TemplatedString, to_variables_registration
+from mushin.types.file_metadata import FileMetadata
 
 
 class FileWorkflowTests(unittest.IsolatedAsyncioTestCase):
@@ -35,7 +35,9 @@ class FileWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.import_node = Node(id=uuid4(), type=ImportFile.spec.type)
         self.save_node = Node(id=uuid4(), type=SaveFile.spec.type)
         self.workflow = Workflow(
-            id=uuid4(), name="Copy a file", nodes=[self.save_node, self.import_node],
+            id=uuid4(),
+            name="Copy a file",
+            nodes=[self.save_node, self.import_node],
             edges=[Edge(source_node=self.import_node.id, source_port="file", target_node=self.save_node.id, target_port="file")],
             inputs=[
                 WorkflowInput(name="source", target_node=self.import_node.id, target_port="source"),
@@ -82,9 +84,15 @@ class FileWorkflowTests(unittest.IsolatedAsyncioTestCase):
         expected = self.destination / "source_9.bin"
         self.assertEqual(run.outputs, {"saved_path": str(expected)})
         self.assertEqual(expected.read_bytes(), self.source.read_bytes())
-        self.assertEqual(run.nodes[variables.id].outputs["variables"], {
-            "filename": "source.bin", "stem": "source", "extension": ".bin", "size_bytes": 9,
-        })
+        self.assertEqual(
+            run.nodes[variables.id].outputs["variables"],
+            {
+                "filename": "source.bin",
+                "stem": "source",
+                "extension": ".bin",
+                "size_bytes": 9,
+            },
+        )
         self.assertEqual(
             run.nodes[rename.id].outputs["file"].content_id,
             run.nodes[self.import_node.id].outputs["file"].content_id,
@@ -111,10 +119,14 @@ class FileWorkflowTests(unittest.IsolatedAsyncioTestCase):
             Edge(source_node=rename.id, source_port="file", target_node=self.save_node.id, target_port="file"),
         ]
         self.workflow.inputs.append(WorkflowInput(name="variables", target_node=naming.id, target_port="variables"))
-        run = await self.runner.run(self.workflow, inputs={
-            "source": str(self.source), "destination": str(self.destination),
-            "variables": {"title": "report", "year": 2026},
-        })
+        run = await self.runner.run(
+            self.workflow,
+            inputs={
+                "source": str(self.source),
+                "destination": str(self.destination),
+                "variables": {"title": "report", "year": 2026},
+            },
+        )
         self.assertEqual(run.status, WorkflowRunStatus.SUCCEEDED)
         original = run.nodes[self.import_node.id].outputs["file"]
         renamed = run.nodes[rename.id].outputs["file"]

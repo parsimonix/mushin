@@ -6,9 +6,9 @@ from typing import Any
 from pydantic import TypeAdapter
 
 from mushin.models.artifact import ArtifactRef
-from mushin.models.file_metadata import FileMetadata
-from mushin.models.video_metadata import VideoMetadata
 from mushin.models.node import NodeExecutor, NodeSpec
+from mushin.types.file_metadata import FileMetadata
+from mushin.types.video_metadata import VideoMetadata
 
 
 @dataclass(frozen=True)

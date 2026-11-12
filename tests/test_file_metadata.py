@@ -5,11 +5,11 @@ from uuid import uuid4
 
 from mushin.artifacts import LocalArtifactStore
 from mushin.models.artifact import ArtifactRef
-from mushin.models.file_metadata import FileMetadata
 from mushin.models.node import Node, Workflow, WorkflowInput, WorkflowOutput
 from mushin.models.registry import NodeRegistry
 from mushin.models.run import WorkflowRunner, WorkflowRunStatus
 from mushin.nodes import InspectFile
+from mushin.types.file_metadata import FileMetadata
 
 
 class FileMetadataTests(unittest.IsolatedAsyncioTestCase):
@@ -20,7 +20,9 @@ class FileMetadataTests(unittest.IsolatedAsyncioTestCase):
             registry.register(InspectFile.spec, InspectFile(store))
             node = Node(id=uuid4(), type=InspectFile.spec.type)
             workflow = Workflow(
-                id=uuid4(), name="Inspect artifact", nodes=[node],
+                id=uuid4(),
+                name="Inspect artifact",
+                nodes=[node],
                 inputs=[WorkflowInput(name="file", target_node=node.id, target_port="file")],
                 outputs=[WorkflowOutput(name="metadata", source_node=node.id, source_port="metadata")],
             )
@@ -38,9 +40,15 @@ class FileMetadataTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(run.status, WorkflowRunStatus.SUCCEEDED)
                     metadata = run.outputs["metadata"]
                     self.assertIsInstance(metadata, FileMetadata)
-                    self.assertEqual(metadata.model_dump(), {
-                        "filename": filename, "stem": stem, "extension": extension, "size_bytes": len(content),
-                    })
+                    self.assertEqual(
+                        metadata.model_dump(),
+                        {
+                            "filename": filename,
+                            "stem": stem,
+                            "extension": extension,
+                            "size_bytes": len(content),
+                        },
+                    )
                     self.assertEqual(FileMetadata.model_validate_json(metadata.model_dump_json()), metadata)
                     self.assertEqual(await store.read(ref), content)
                     self.assertEqual(set(Path(workspace, "artifacts").iterdir()), before)

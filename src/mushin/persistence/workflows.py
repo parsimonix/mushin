@@ -47,12 +47,18 @@ class _WorkflowLoader(yaml.SafeLoader):
             try:
                 if key in mapping:
                     raise yaml.constructor.ConstructorError(
-                        None, None, f"Duplicate YAML key: {key!r}", key_node.start_mark,
+                        None,
+                        None,
+                        f"Duplicate YAML key: {key!r}",
+                        key_node.start_mark,
                     )
                 mapping[key] = self.construct_object(value_node, deep=deep)
             except TypeError as exc:
                 raise yaml.constructor.ConstructorError(
-                    None, None, "YAML mapping keys must be hashable", key_node.start_mark,
+                    None,
+                    None,
+                    "YAML mapping keys must be hashable",
+                    key_node.start_mark,
                 ) from exc
         return mapping
 
@@ -109,7 +115,11 @@ class YamlWorkflowRepository:
         staging_path = None
         try:
             with NamedTemporaryFile(
-                mode="w", encoding="utf-8", dir=self._root, prefix=".pending-", delete=False,
+                mode="w",
+                encoding="utf-8",
+                dir=self._root,
+                prefix=".pending-",
+                delete=False,
             ) as staging:
                 staging_path = Path(staging.name)
                 staging.write(document)

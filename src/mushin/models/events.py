@@ -6,7 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from mushin.models.run_state import NodeRunStatus, RunError, WorkflowRunStatus
+from mushin.enums import NodeRunStatus, WorkflowRunStatus
+from mushin.exceptions import RunError
 
 
 class StateEvent(BaseModel):

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, JsonValue
 
 from mushin.models.artifact import ArtifactRef
 from mushin.models.node import ExecutionContext, NodeSpec, Port
-from mushin.models.video_metadata import VideoMetadata
+from mushin.types.video_metadata import VideoMetadata
 
 
 class GuessVideoConfig(BaseModel):
@@ -34,7 +34,10 @@ class GuessVideo:
     )
 
     async def execute(
-        self, inputs: Mapping[str, object], config: Mapping[str, JsonValue], context: ExecutionContext,
+        self,
+        inputs: Mapping[str, object],
+        config: Mapping[str, JsonValue],
+        context: ExecutionContext,
     ) -> Mapping[str, object]:
         context.raise_if_cancelled()
         ref = cast(ArtifactRef, inputs["file"])

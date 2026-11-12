@@ -8,18 +8,18 @@ from pydantic import BaseModel, ConfigDict, JsonValue
 from mushin.models.node import ExecutionContext, NodeSpec, Port
 
 
-class ConstantConfig(BaseModel):
+class ConstantNumberConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     value: int | float
 
 
-class Constant:
+class ConstantNumber:
     """Emit a configured numeric value."""
 
     spec = NodeSpec(
         type="math.constant",
-        config_model=ConstantConfig,
+        config_model=ConstantNumberConfig,
         outputs=[Port(name="value", direction="output", type="number")],
     )
 

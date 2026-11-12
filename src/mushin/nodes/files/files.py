@@ -8,16 +8,12 @@ from pydantic import BaseModel, ConfigDict, JsonValue
 
 from mushin.artifacts import LocalArtifactStore
 from mushin.models.artifact import ArtifactRef
-from mushin.models.file_metadata import FileMetadata
 from mushin.models.node import ExecutionContext, NodeSpec, Port
+from mushin.types.file_metadata import FileMetadata
 
 
 class ImportFileConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-
-
-class SaveFileConfig(ImportFileConfig):
-    collision_policy: Literal["error"] = "error"
 
 
 class ImportFile:
@@ -34,11 +30,18 @@ class ImportFile:
         self._artifacts = artifacts
 
     async def execute(
-        self, inputs: Mapping[str, object], config: Mapping[str, JsonValue], context: ExecutionContext,
+        self,
+        inputs: Mapping[str, object],
+        config: Mapping[str, JsonValue],
+        context: ExecutionContext,
     ) -> Mapping[str, object]:
         context.raise_if_cancelled()
         ref = await self._artifacts.import_file(cast(str, inputs["source"]))
         return {"file": ref}
+
+
+class SaveFileConfig(ImportFileConfig):
+    collision_policy: Literal["error"] = "error"
 
 
 class SaveFile:
@@ -58,7 +61,10 @@ class SaveFile:
         self._artifacts = artifacts
 
     async def execute(
-        self, inputs: Mapping[str, object], config: Mapping[str, JsonValue], context: ExecutionContext,
+        self,
+        inputs: Mapping[str, object],
+        config: Mapping[str, JsonValue],
+        context: ExecutionContext,
     ) -> Mapping[str, object]:
         context.raise_if_cancelled()
         path = await self._artifacts.save(cast(ArtifactRef, inputs["file"]), cast(str, inputs["directory"]))
@@ -83,7 +89,10 @@ class RenameFile:
     )
 
     async def execute(
-        self, inputs: Mapping[str, object], config: Mapping[str, JsonValue], context: ExecutionContext,
+        self,
+        inputs: Mapping[str, object],
+        config: Mapping[str, JsonValue],
+        context: ExecutionContext,
     ) -> Mapping[str, object]:
         context.raise_if_cancelled()
         ref = cast(ArtifactRef, inputs["file"])
@@ -104,12 +113,20 @@ class InspectFile:
         self._artifacts = artifacts
 
     async def execute(
-        self, inputs: Mapping[str, object], config: Mapping[str, JsonValue], context: ExecutionContext,
+        self,
+        inputs: Mapping[str, object],
+        config: Mapping[str, JsonValue],
+        context: ExecutionContext,
     ) -> Mapping[str, object]:
         context.raise_if_cancelled()
         ref = cast(ArtifactRef, inputs["file"])
         name = PurePosixPath(ref.filename)
         size = await self._artifacts.size(ref)
-        return {"metadata": FileMetadata(
-            filename=ref.filename, stem=name.stem, extension=name.suffix, size_bytes=size,
-        )}
+        return {
+            "metadata": FileMetadata(
+                filename=ref.filename,
+                stem=name.stem,
+                extension=name.suffix,
+                size_bytes=size,
+            )
+        }

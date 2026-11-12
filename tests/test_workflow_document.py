@@ -4,10 +4,9 @@ from tempfile import TemporaryDirectory
 
 from mushin.models.registry import NodeRegistry
 from mushin.models.validation import WorkflowValidator
-from mushin.models.video_metadata import VideoMetadata
 from mushin.nodes import GuessVideo, TemplatedString, to_variables_registration
 from mushin.persistence import WorkflowDocumentError, YamlWorkflowRepository, load_workflow_file, parse_workflow_yaml
-
+from mushin.types.video_metadata import VideoMetadata
 
 DOCUMENT = """
 name: Authored workflow
