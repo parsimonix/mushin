@@ -70,6 +70,56 @@ Await the runner **inside** artifact input/output contexts so process cleanup
 finishes before temporary files are removed. The runner owns a direct child;
 it does not manage descendant processes inheriting its output pipes.
 
+## Content metadata and stream selection
+
+`MediaProbe` reads actual media properties using ffprobe's JSON output. It
+keeps those properties separate from filename-inferred `VideoMetadata`:
+
+```python
+from mushin.media import MediaProbe, StreamSelectionPolicy
+
+async def inspect_artifact(tools, store, ref, context):
+    info = await MediaProbe(tools).probe_artifact(
+        store, ref, timeout=30, cancellation=context.cancellation,
+    )
+    selection = StreamSelectionPolicy().select(info)
+    return info, selection
+```
+
+`MediaInfo` contains container names, duration in seconds, typed streams,
+chapters, tags, and stream dispositions. Missing or `N/A` duration remains
+`None`; it is not inferred from filenames or individual streams. Additional
+ffprobe fields are ignored. Invalid JSON or invalid required metadata raises
+`MediaToolError` with code `invalid_probe_output`. Process errors retain their
+original codes. `probe_path()` also accepts a caller-owned local file, useful
+for checking staged output before publishing it.
+
+The default stream policy preserves all video, audio, subtitle, attachment,
+cover-art, and data streams, plus chapters. Each stream category accepts
+`all`, `first`, or `none`; `first` uses probe order, regardless of language or
+default disposition. Cover art (`pictures`) is selected separately from
+ordinary `video` and `attachments`. For example:
+
+```python
+policy = StreamSelectionPolicy(
+    audio="first", subtitles="none", attachments="none",
+    pictures="none", data="none", chapters="drop",
+)
+```
+
+Unknown stream types raise `unsupported_stream_type` unless `unknown="drop"`
+is explicit. Selecting no streams raises `empty_stream_selection`. The result
+contains absolute stream indices in input order and generates explicit
+`-map 0:<index>` and `-map_chapters` arguments for a single input. Destination
+container compatibility and conversion remain separate checks; selection
+does not silently discard streams to fit a container.
+
+Probe and selection tests use simulated ffprobe responses:
+
+```bash
+uv run python -m unittest discover -s tests -p test_media_probe.py
+```
+
 ## Workflow storage
 
 Handwritten workflows can use named node keys without IDs. See
