@@ -71,7 +71,8 @@ class RemuxVideo:
                 arguments = ["-v", "error", "-n", "-i", str(source), *selection.ffmpeg_arguments(),
                              "-map_metadata", "0", "-c", "copy", "-f", settings.container, str(output.path)]
                 try:
-                    await self._runner.ffmpeg(self._tools, arguments, timeout=settings.timeout, cancellation=context.cancellation)
+                    await self._runner.ffmpeg(self._tools, arguments, timeout=settings.timeout, cancellation=context.cancellation,
+                        on_progress=lambda seconds: context.report_progress(seconds, before.duration if before.duration and before.duration > 0 else None))
                 except MediaToolError as exc:
                     if exc.code != "command_failed":
                         raise

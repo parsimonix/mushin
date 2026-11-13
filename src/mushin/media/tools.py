@@ -123,7 +123,8 @@ def _inventory(output: str, kind: str, path: Path) -> frozenset[str]:
     flags = r"[DE.]{1,2}(?: ?d)?" if kind in ("muxers", "demuxers") else r"[VAS.][A-Z.]{5}"
     pattern = re.compile(rf"^[ \t]+{flags}[ \t]+([a-zA-Z0-9_][a-zA-Z0-9_,.-]*)[ \t]+\S", re.MULTILINE)
     names = frozenset(name for match in pattern.finditer(output) for name in match[1].split(","))
-    heading = "Formats:" if kind in ("muxers", "demuxers") else f"{kind.capitalize()}:"
-    if heading not in output:
+    # FFmpeg builds use either heading for format capability listings.
+    headings = ("Formats:", "File formats:") if kind in ("muxers", "demuxers") else (f"{kind.capitalize()}:",)
+    if not any(line.strip() in headings for line in output.splitlines()):
         raise MediaToolError("invalid_tool_output", f"{path} returned invalid {kind} output", executable=str(path))
     return names

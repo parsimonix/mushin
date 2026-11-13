@@ -40,5 +40,19 @@ class NodeStateEvent(StateEvent):
     status: NodeRunStatus
 
 
+class NodeProgressEvent(StateEvent):
+    """Work performed within a running node; percentage may be unknown."""
+
+    type: Literal["node_progress"] = "node_progress"
+    node_id: UUID
+    completed: float = Field(ge=0, allow_inf_nan=False)
+    total: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    unit: str = "seconds"
+
+    @property
+    def percentage(self) -> float | None:
+        return min(100.0, self.completed / self.total * 100) if self.total is not None else None
+
+
 # The discriminator preserves each event's status type during JSON parsing.
-ExecutionEvent = Annotated[RunStateEvent | NodeStateEvent, Field(discriminator="type")]
+ExecutionEvent = Annotated[RunStateEvent | NodeStateEvent | NodeProgressEvent, Field(discriminator="type")]

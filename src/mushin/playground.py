@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 
 from mushin.artifacts import LocalArtifactStore
 from mushin.enums import NodeRunStatus
-from mushin.models.events import ExecutionEvent, NodeStateEvent
+from mushin.models.events import ExecutionEvent, NodeProgressEvent, NodeStateEvent
 from mushin.models.node import Edge, Node, Workflow, WorkflowInput, WorkflowOutput
 from mushin.models.registry import NodeRegistry
 from mushin.models.run import WorkflowRunner, WorkflowRunStatus
@@ -26,6 +26,11 @@ def print_event(event: ExecutionEvent, *, workflow: Workflow) -> None:
         return node.name or node.type
 
     subject = f"run={event.run_id.hex[:8]}"
+    if isinstance(event, NodeProgressEvent):
+        percentage = event.percentage
+        value = f"{percentage:.1f}%" if percentage is not None else f"{event.completed:.3f} {event.unit} (total unknown)"
+        print(f"[{event.timestamp.isoformat()}] {subject} node={label(nodes[event.node_id])} progress={value}", flush=True)
+        return
     if isinstance(event, NodeStateEvent):
         node = nodes[event.node_id]
         subject += f" node={label(node)}[{event.node_id.hex[:8]}]"

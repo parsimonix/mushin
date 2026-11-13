@@ -61,6 +61,28 @@ class RemuxVideoTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.store.read(self.source), b"source")
         self.assertEqual(len(list(self.root.iterdir())), 1)
 
+    async def test_progress_uses_probe_duration_and_supports_unknown_total(self):
+        for duration in ("1.0", "N/A"):
+            events = []
+            self.context = replace(self.context, on_progress=events.append)
+            before = metadata()
+            before["format"]["duration"] = duration
+            self.runner.ffprobe.side_effect = [
+                ProcessResult(json.dumps(before).encode(), "", 0),
+                ProcessResult(json.dumps(metadata()).encode(), "", 0),
+            ]
+
+            async def convert(tools, arguments, **kwargs):
+                kwargs["on_progress"](0.5)
+                Path(arguments[-1]).write_bytes(b"remuxed")
+                return ProcessResult(b"", "", 0)
+
+            self.runner.ffmpeg.side_effect = convert
+            await self.execute()
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].completed, 0.5)
+            self.assertEqual(events[0].percentage, 50 if duration == "1.0" else None)
+
     async def test_new_artifact_and_explicit_copy_arguments(self):
         result = await self.execute()
         ref = result["file"]

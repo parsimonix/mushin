@@ -42,6 +42,18 @@ class MediaToolsTests(unittest.TestCase):
             self.assertEqual(call.kwargs["stdin"], subprocess.DEVNULL)
             self.assertEqual(call.kwargs["timeout"], 10)
 
+    def test_file_formats_heading_with_crlf_and_aliases(self):
+        def respond(args, **kwargs):
+            result = self.respond(args, **kwargs)
+            if args[-1] in ("-muxers", "-demuxers"):
+                result.stdout = result.stdout.replace(b"Formats:", b"File formats:").replace(b"\n", b"\r\n")
+            return result
+
+        self.run.side_effect = respond
+        tools = MediaTools.discover()
+        self.assertEqual(tools.muxers, {"matroska", "video4linux2", "v4l2"})
+        self.assertEqual(tools.demuxers, {"mov", "mp4", "m4a", "lavfi"})
+
     def test_custom_paths_and_timeout(self):
         self.which.side_effect = lambda name: name
         self.run.side_effect = lambda args, **kwargs: self.respond(

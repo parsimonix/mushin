@@ -87,6 +87,7 @@ def create_default_type_registry() -> TypeRegistry:
     """
     registry = TypeRegistry()
     registry.register("string", TypeAdapter(str))
+    registry.register("string_list", TypeAdapter(list[str]))
     registry.register("integer", TypeAdapter(int))
     registry.register("number", TypeAdapter(int | float))
     registry.register("boolean", TypeAdapter(bool))

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from logging import getLogger
 from pathlib import Path
 
 from mushin.exceptions import MediaToolError
 from mushin.media.tools import MediaTools
+from mushin.media.progress import FFmpegProgressParser
 
 
 @dataclass(frozen=True)
@@ -38,9 +40,14 @@ class ProcessRunner:
         self.grace_period = grace_period
 
     async def run(
-        self, executable: str | Path, arguments: Sequence[str], *, timeout: float | None = None, cancellation: asyncio.Event | None = None
+        self, executable: str | Path, arguments: Sequence[str], *, timeout: float | None = None, cancellation: asyncio.Event | None = None,
+        on_stdout: Callable[[bytes], None] | None = None
     ) -> ProcessResult:
-        """Timeout includes launch and processing; cleanup may take extra time."""
+        """Timeout includes launch and processing; cleanup may take extra time.
+
+        on_stdout streams chunks instead of capturing stdout. It must return
+        promptly; ordinary observer errors are logged while pipes keep draining.
+        """
         if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
             raise ValueError("timeout must be finite and positive")
         if isinstance(arguments, (str, bytes)):
@@ -50,7 +57,7 @@ class ProcessRunner:
         stop = asyncio.Event()
         # Cancelling during spawn can lose the child handle. Signal the
         # supervisor instead so it owns the child through launch and cleanup.
-        operation = asyncio.create_task(self._execute(str(executable), tuple(arguments), stop))
+        operation = asyncio.create_task(self._execute(str(executable), tuple(arguments), stop, on_stdout))
         cancelled = asyncio.create_task(cancellation.wait()) if cancellation is not None else None
         try:
             watched = {operation} if cancelled is None else {operation, cancelled}
@@ -89,17 +96,25 @@ class ProcessRunner:
                 raise asyncio.CancelledError
 
     async def ffmpeg(
-        self, tools: MediaTools, arguments: Sequence[str], *, timeout: float | None = None, cancellation: asyncio.Event | None = None
+        self, tools: MediaTools, arguments: Sequence[str], *, timeout: float | None = None, cancellation: asyncio.Event | None = None,
+        on_progress: Callable[[float], None] | None = None
     ) -> ProcessResult:
-        """Run FFmpeg with interactive stdin explicitly disabled."""
-        return await self.run(tools.ffmpeg.path, ["-nostdin", *arguments], timeout=timeout, cancellation=cancellation)
+        """Run FFmpeg with stdin disabled; optionally stream media seconds.
+
+        Progress reserves stdout for machine-readable records. Updates are
+        throttled to 250 ms except the final record. End is not node success.
+        """
+        parser = FFmpegProgressParser(on_progress) if on_progress is not None else None
+        options = ["-progress", "pipe:1", "-nostats"] if parser is not None else []
+        return await self.run(tools.ffmpeg.path, ["-nostdin", *options, *arguments], timeout=timeout,
+                              cancellation=cancellation, on_stdout=parser.feed if parser is not None else None)
 
     async def ffprobe(
         self, tools: MediaTools, arguments: Sequence[str], *, timeout: float | None = None, cancellation: asyncio.Event | None = None
     ) -> ProcessResult:
         return await self.run(tools.ffprobe.path, arguments, timeout=timeout, cancellation=cancellation)
 
-    async def _execute(self, executable: str, arguments: tuple[str, ...], stop: asyncio.Event) -> ProcessResult:
+    async def _execute(self, executable: str, arguments: tuple[str, ...], stop: asyncio.Event, on_stdout: Callable[[bytes], None] | None = None) -> ProcessResult:
         try:
             process = await asyncio.create_subprocess_exec(
                 executable,
@@ -121,6 +136,12 @@ class ProcessRunner:
                     # Failure details usually appear last; older log output can go.
                     stderr.extend(chunk)
                     del stderr[: -self.stderr_limit]
+                elif on_stdout is not None:
+                    if not stop.is_set():
+                        try:
+                            on_stdout(chunk)
+                        except Exception:
+                            getLogger(__name__).exception("Media stdout callback failed")
                 else:
                     available = self.stdout_limit - len(stdout)
                     stdout.extend(chunk[:available])

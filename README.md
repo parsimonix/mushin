@@ -164,6 +164,35 @@ Await the runner **inside** artifact input/output contexts so process cleanup
 finishes before temporary files are removed. The runner owns a direct child;
 it does not manage descendant processes inheriting its output pipes.
 
+## Conversion progress
+
+`WorkflowRunner.run(..., on_event=callback)` delivers `NodeProgressEvent`
+notifications between a node's running and terminal state events. Nodes call
+`context.report_progress(completed, total=None, unit="seconds")`. Events carry
+run/node IDs, a UTC timestamp, completed work, optional total, and unit;
+`event.percentage` returns a value capped at 100 or `None` for unknown totals.
+Callbacks are synchronous; ordinary observer exceptions are logged.
+
+`RemuxVideo` streams FFmpeg's machine-readable `-progress pipe:1` output
+([FFmpeg documentation](https://ffmpeg.org/ffmpeg.html#toc-Main-options)).
+It reports processed media seconds and uses the input's ffprobe duration as
+the total when positive and known. Unknown duration displays elapsed media
+seconds without a percentage. Updates are throttled to one per 250 ms, with
+the final FFmpeg record delivered immediately. Media time does not regress.
+FFmpeg's end record does not imply successful verification or publication;
+use the node's terminal state to determine success. Cancellation suppresses
+further progress while the process is terminated and reaped.
+
+The remux and Plex playgrounds display these events. Fast remuxes may produce
+only a couple of updates. A remux returning the original artifact performs no
+conversion and emits no conversion progress.
+
+`ProcessRunner.ffmpeg(..., on_progress=callback)` provides the same throttled
+media seconds directly. This reserves stdout for progress and returns empty
+captured stdout; stderr diagnostics remain bounded. The incremental parser
+bounds line buffering and ignores malformed time values, so long conversions
+do not accumulate progress output or hit the normal stdout capture limit.
+
 ## Content metadata and stream selection
 
 `MediaProbe` reads actual media properties using ffprobe's JSON output. It
@@ -390,3 +419,18 @@ Saving replaces the document atomically and does not preserve YAML comments
 or formatting. Missing documents raise `FileNotFoundError`; invalid stored
 documents raise `WorkflowDocumentError`. Listing fails on invalid workflow
 documents and ignores files outside the repository's UUID naming convention.
+
+## Scan a folder
+
+Register `ScanFolder` from `mushin.nodes` with
+`registry.register(ScanFolder.spec, ScanFolder())`. The node type is
+`folders.scan_folder`; its `path` input is a folder path string. Its `files`,
+`folders`, and `symlinks` outputs each contain a `string_list` of sorted absolute
+paths. Configuration is empty.
+
+Scanning includes hidden entries directly inside the folder. Symlinks appear
+only in `symlinks`, including broken links; their targets are not followed.
+Special files are excluded. It does not recurse or import files
+into artifact storage. Directory reads run in a worker thread; cancellation is
+checked before scanning, between entries, and before returning results.
+Missing folders, non-directory paths, and permission errors fail the node.

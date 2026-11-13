@@ -181,7 +181,7 @@ class ProcessRunnerTests(unittest.IsolatedAsyncioTestCase):
         tools = MediaTools(tool, probe, frozenset(), frozenset(), frozenset(), frozenset())
         with patch.object(self.runner, "run", new_callable=AsyncMock) as run:
             await self.runner.ffmpeg(tools, ["-version"], timeout=2)
-            run.assert_awaited_once_with(tool.path, ["-nostdin", "-version"], timeout=2, cancellation=None)
+            run.assert_awaited_once_with(tool.path, ["-nostdin", "-version"], timeout=2, cancellation=None, on_stdout=None)
             run.reset_mock()
             await self.runner.ffprobe(tools, ["-version"])
             run.assert_awaited_once_with(probe.path, ["-version"], timeout=None, cancellation=None)

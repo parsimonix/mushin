@@ -18,7 +18,7 @@ Complete and verify each step before moving to the next:
 5. [x] Implement typed `RemuxVideo` configuration, explicit stream copying, output verification, and artifact publication.
 6. [x] Add generated video fixtures and integration coverage for success, incompatible containers, malformed input, missing tools, timeout, and cancellation.
 7. [x] Add the import → remux → save playground and installation/testing documentation.
-8. [ ] Add execution progress events and FFmpeg progress parsing, including unknown durations and throttling.
+8. [x] Add execution progress events and FFmpeg progress parsing, including unknown durations and throttling.
 9. [ ] Implement and test one explicit transcoding profile using the same services.
 
 ## 1. Managed artifact file access
@@ -71,12 +71,12 @@ Complete and verify each step before moving to the next:
 
 ## 5. Progress reporting
 
-- [ ] Extend execution events with node progress notifications.
-- [ ] Parse FFmpeg's machine-readable `-progress pipe:1` output.
-- [ ] Use ffprobe duration to calculate percentage when duration is known.
-- [ ] Support unknown duration without inventing a percentage.
-- [ ] Throttle updates and preserve event ordering through completion and cancellation.
-- [ ] Display conversion progress in the playground.
+- [x] Extend execution events with node progress notifications.
+- [x] Parse FFmpeg's machine-readable `-progress pipe:1` output.
+- [x] Use ffprobe duration to calculate percentage when duration is known.
+- [x] Support unknown duration without inventing a percentage.
+- [x] Throttle updates and preserve event ordering through completion and cancellation.
+- [x] Display conversion progress in the playground.
 
 ## 6. TranscodeVideo node
 

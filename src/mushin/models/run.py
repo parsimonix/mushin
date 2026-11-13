@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from mushin.enums import NodeRunStatus, WorkflowRunStatus
 from mushin.exceptions import PortValueError, RunError
-from mushin.models.events import ExecutionEvent, NodeStateEvent, RunStateEvent
+from mushin.models.events import ExecutionEvent, NodeProgressEvent, NodeStateEvent, RunStateEvent
 from mushin.models.node import Node, NodeSpec, Port, Workflow
 from mushin.models.registry import NodeRegistration, NodeRegistry, TypeRegistry, create_default_type_registry
 from mushin.models.validation import ValidationIssue, WorkflowValidator
@@ -60,6 +60,13 @@ class NodeExecutionContext:
     node_id: UUID
     logger: Logger
     cancellation: Event = field(default_factory=Event)
+
+    on_progress: Callable[[NodeProgressEvent], None] | None = field(default=None, repr=False, compare=False)
+
+    def report_progress(self, completed: float, total: float | None = None, *, unit: str = "seconds") -> None:
+        if not self.cancellation.is_set() and self.on_progress is not None:
+            self.on_progress(NodeProgressEvent(run_id=self.run_id, node_id=self.node_id,
+                                               completed=completed, total=total, unit=unit))
 
     def raise_if_cancelled(self) -> None:
         """Raise asyncio.CancelledError when the shared cancellation event is set."""
@@ -293,7 +300,8 @@ class WorkflowRunner:
         record.started_at = self._now()
         self._emit_node(run, record, on_event)
         logger.info("Run %s: starting node %s (%s v%d)", run.id, node.id, node.type, node.version)
-        context = NodeExecutionContext(run_id=run.id, node_id=node.id, logger=getLogger(f"mushin.run.{run.id}.{node.id}"), cancellation=cancellation)
+        context = NodeExecutionContext(run_id=run.id, node_id=node.id, logger=getLogger(f"mushin.run.{run.id}.{node.id}"), cancellation=cancellation,
+            on_progress=lambda event: self._emit(event, on_event) if record.status == NodeRunStatus.RUNNING else None)
         try:
             context.raise_if_cancelled()
             inputs = self._collect_inputs(run, node, registration.spec)
