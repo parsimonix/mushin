@@ -8,7 +8,7 @@ import yaml
 
 from mushin.models.node import Edge, Node, Workflow, WorkflowInput, WorkflowOutput
 from mushin.persistence import load_workflow_file, parse_workflow_yaml
-from mushin.plex_playground import build_workflow
+from mushin.playground import build_workflow
 
 
 class WorkflowExportTests(unittest.IsolatedAsyncioTestCase):
@@ -16,7 +16,9 @@ class WorkflowExportTests(unittest.IsolatedAsyncioTestCase):
         source = Node(name="Import Video", type="file.import", config={"text": "café", "list": [1, True, None]})
         target = Node(name="Save Video", type="file.save")
         self.workflow = Workflow(
-            name="Export example", schema_version=2, nodes=[source, target],
+            name="Export example",
+            schema_version=2,
+            nodes=[source, target],
             edges=[Edge(source_node=source.id, source_port="file", target_node=target.id, target_port="file")],
             inputs=[WorkflowInput(name="source", target_node=source.id, target_port="source")],
             outputs=[WorkflowOutput(name="path", source_node=target.id, source_port="path")],
@@ -59,11 +61,17 @@ class WorkflowExportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(restored, self.workflow)
 
     def test_key_generation_handles_duplicates_missing_names_and_punctuation(self):
-        workflow = Workflow(name="Keys", nodes=[
-            Node(name="Source", type="example"), Node(name="Source", type="example"),
-            Node(name="Source_2", type="example"), Node(type="example.source"),
-            Node(name="!!!", type="example"), Node(name="  ", type="example"),
-        ])
+        workflow = Workflow(
+            name="Keys",
+            nodes=[
+                Node(name="Source", type="example"),
+                Node(name="Source", type="example"),
+                Node(name="Source_2", type="example"),
+                Node(type="example.source"),
+                Node(name="!!!", type="example"),
+                Node(name="  ", type="example"),
+            ],
+        )
         data = yaml.safe_load(workflow.export(form="author"))
         self.assertEqual(list(data["nodes"]), ["source", "source_2", "source_2_2", "example_source", "node", "node_2"])
         self.assertNotIn("name", data["nodes"]["example_source"])
